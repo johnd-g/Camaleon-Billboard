@@ -1,0 +1,33 @@
+name: camaleon_billboard
+description: Camaleon digital menu billboard — renders bb_arrangement screens from MySQL.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  mysql1: ^0.20.0
+  shared_preferences: ^2.5.5
+  device_info_plus: ^13.2.0
+  path_provider: ^2.1.6
+  path: ^1.9.1
+  provider: ^6.1.5
+  intl: ^0.20.2
+  image_picker: ^1.2.3
+  image: ^4.9.2
+  zxing2: ^0.2.4
+  file_picker: ^12.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/camaleon_logo.png
