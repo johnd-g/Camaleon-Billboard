@@ -18,6 +18,46 @@ class MenuItemEntity {
   final String className;
 }
 
+/// A POS menu class (`it_titemclass`) available for a new menu block.
+class MenuClassOption {
+  const MenuClassOption({
+    required this.classId,
+    required this.name,
+  });
+
+  final int classId;
+  final String name;
+}
+
+/// Open POS ticket for Customer display (`it_tcuenta` + `it_torder`).
+class CustomerOrderTicket {
+  const CustomerOrderTicket({
+    required this.cuentaId,
+    required this.label,
+    required this.lines,
+    required this.total,
+  });
+
+  final int cuentaId;
+  final String label;
+  final List<CustomerOrderLine> lines;
+  final double total;
+}
+
+class CustomerOrderLine {
+  const CustomerOrderLine({
+    required this.qty,
+    required this.name,
+    required this.unitPrice,
+  });
+
+  final double qty;
+  final String name;
+  final double unitPrice;
+
+  double get lineTotal => qty * unitPrice;
+}
+
 class MenuSection {
   const MenuSection({
     required this.arrangement,

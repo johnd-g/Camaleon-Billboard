@@ -6,6 +6,7 @@ import 'package:camaleon_billboard/core/utils/board_fonts.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
+import 'package:camaleon_billboard/presentation/board/widgets/customer_order_preview.dart';
 
 typedef StylePatch = void Function({
   int? classFontDelta,
@@ -34,6 +35,8 @@ typedef StylePatch = void Function({
   double? mediaOpacity,
   int? displayOrder,
   int? displaySeconds,
+  int? rangeOffset,
+  int? rangeCount,
   int? borderWidth,
   String? borderColor,
   bool? videoLoop,
@@ -58,7 +61,16 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.onPickBackgroundImage,
     this.onPickBackgroundVideo,
     this.onClearBackgroundImage,
-    this.onBrowseMediaFile,
+    this.onPickBlockImage,
+    this.onPickBlockVideo,
+    this.onClearBlockMedia,
+    this.onAddMenuSection,
+    this.onAddPhotoBlock,
+    this.onDeleteBlock,
+    this.creatingBlock = false,
+    this.customerDisplay = false,
+    this.onCustomerDisplayChanged,
+    this.openOrders = const [],
   });
 
   final int boardMainBackColor;
@@ -75,444 +87,287 @@ class ArrangementStyleEditor extends StatelessWidget {
   final VoidCallback? onPickBackgroundImage;
   final VoidCallback? onPickBackgroundVideo;
   final VoidCallback? onClearBackgroundImage;
-  final VoidCallback? onBrowseMediaFile;
+  final VoidCallback? onPickBlockImage;
+  final VoidCallback? onPickBlockVideo;
+  final VoidCallback? onClearBlockMedia;
+  final VoidCallback? onAddMenuSection;
+  final VoidCallback? onAddPhotoBlock;
+  final VoidCallback? onDeleteBlock;
+  final bool creatingBlock;
+  final bool customerDisplay;
+  final ValueChanged<bool>? onCustomerDisplayChanged;
+  final List<CustomerOrderTicket> openOrders;
 
   @override
   Widget build(BuildContext context) {
     final a = section?.arrangement ?? picture?.arrangement;
     final hasBgImage =
         backgroundPreviewBytes != null && backgroundPreviewBytes!.isNotEmpty;
+    final hasBgVideo = backgroundMediaType == ArrangementMediaType.video &&
+        backgroundMediaFile.isNotEmpty;
+
+    if (a == null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _AddToBoardCard(
+            creating: creatingBlock,
+            onAddMenu: onAddMenuSection,
+            onAddPhoto: onAddPhotoBlock,
+          ),
+          const SizedBox(height: 12),
+          _CustomerDisplayCard(
+            enabled: customerDisplay,
+            onChanged: onCustomerDisplayChanged,
+            orders: openOrders,
+          ),
+          const SizedBox(height: 12),
+          _BoardSettingsCard(
+            boardMainBackColor: boardMainBackColor,
+            onBoardBackgroundColor: onBoardBackgroundColor,
+            hasBgImage: hasBgImage,
+            hasBgVideo: hasBgVideo,
+            backgroundPreviewBytes: backgroundPreviewBytes,
+            backgroundMediaFile: backgroundMediaFile,
+            uploadingBackground: uploadingBackground,
+            multipleBoardBackgrounds: multipleBoardBackgrounds,
+            onPickBackgroundImage: onPickBackgroundImage,
+            onPickBackgroundVideo: onPickBackgroundVideo,
+            onClearBackgroundImage: onClearBackgroundImage,
+          ),
+        ],
+      );
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Card(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _Label('Board background'),
-              const SizedBox(height: 8),
-              _ColorSwatches(
-                value: boardMainBackColor,
-                onChanged: onBoardBackgroundColor,
-              ),
-              const SizedBox(height: 12),
-              const _Label('Background media'),
-              const SizedBox(height: 8),
-              if (hasBgImage)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Image.memory(
-                      backgroundPreviewBytes!,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                    ),
-                  ),
-                )
-              else if (backgroundMediaType == ArrangementMediaType.video &&
-                  backgroundMediaFile.isNotEmpty)
-                Container(
-                  height: 72,
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.videocam_rounded,
-                          color: Colors.white70, size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          backgroundMediaFile,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Container(
-                  height: 72,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Text(
-                    'No media · solid color only',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.45),
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: uploadingBackground
-                          ? null
-                          : onPickBackgroundImage,
-                      icon: uploadingBackground
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(
-                              hasBgImage
-                                  ? Icons.photo_library_outlined
-                                  : Icons.add_photo_alternate_outlined,
-                              size: 18,
-                            ),
-                      label: Text(hasBgImage ? 'Change image' : 'Image'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: CamaleonColors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: uploadingBackground
-                          ? null
-                          : onPickBackgroundVideo,
-                      icon: const Icon(Icons.videocam_outlined, size: 18),
-                      label: Text(
-                        backgroundMediaType == ArrangementMediaType.video
-                            ? 'Change video'
-                            : 'Video',
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white12,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  if ((hasBgImage ||
-                          backgroundMediaType ==
-                              ArrangementMediaType.video) &&
-                      onClearBackgroundImage != null) ...[
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
-                      tooltip: 'Remove background media',
-                      onPressed:
-                          uploadingBackground ? null : onClearBackgroundImage,
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.white12,
-                        foregroundColor: Colors.white70,
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Image → bb_pic blob. Video → media_file path (loops behind the menu).',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.45),
-                  fontSize: 11,
-                  height: 1.35,
-                ),
-              ),
-              if (multipleBoardBackgrounds) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0x33F59E0B),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0x99F59E0B)),
-                  ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.warning_amber_rounded,
-                          color: Color(0xFFFBBF24), size: 18),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'More than one photo is marked as board background. '
-                          'Only one is allowed — turn the extras off.',
-                          style: TextStyle(
-                            color: Color(0xFFFFE7A3),
-                            fontSize: 12,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
+        _blockHeader(
+          section?.className ??
+              (picture!.arrangement.screenName.isEmpty
+                  ? 'Photo #${picture!.arrangement.id}'
+                  : picture!.arrangement.screenName),
+          isPhoto: picture != null,
         ),
-        if (a == null) ...[
+        if (picture != null) ...[
           const SizedBox(height: 10),
-          _Card(
-            child: Row(
-              children: [
-                Icon(
-                  Icons.touch_app_rounded,
-                  color: CamaleonColors.greenSoft.withValues(alpha: 0.9),
-                  size: 22,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Tap a menu section or photo to edit size, colors, and type.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 13,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          _BackgroundToggle(
+            value: a.isBoardBackground,
+            onChanged: (v) => onPatch(boardBackground: v),
           ),
-        ] else ...[
-          const SizedBox(height: 10),
-          _blockHeader(
-            section?.className ??
-                (picture!.arrangement.screenName.isEmpty
-                    ? 'Photo #${picture!.arrangement.id}'
-                    : picture!.arrangement.screenName),
-            isPhoto: picture != null,
-          ),
-          if (picture != null) ...[
+          if (!a.isBoardBackground) ...[
             const SizedBox(height: 8),
-            _BackgroundToggle(
-              value: a.isBoardBackground,
-              onChanged: (v) => onPatch(boardBackground: v),
-            ),
-            if (!a.isBoardBackground) ...[
-              const SizedBox(height: 8),
-              _StepperRow(
-                icon: Icons.swap_horiz_rounded,
-                label: 'Width',
-                valueLabel: '${a.maxWidth}',
-                unit: 'px',
-                onMinus: () => onPatch(maxWidth: a.maxWidth - 20),
-                onPlus: () => onPatch(maxWidth: a.maxWidth + 20),
-                onMinusBig: () => onPatch(maxWidth: a.maxWidth - 100),
-                onPlusBig: () => onPatch(maxWidth: a.maxWidth + 100),
-              ),
-            ],
-            const SizedBox(height: 8),
-            _MediaControls(
-              arrangement: a,
-              onPatch: onPatch,
-              onBrowseMediaFile: onBrowseMediaFile,
-              browsing: uploadingBackground,
+            _StepperRow(
+              icon: Icons.swap_horiz_rounded,
+              label: 'Width',
+              valueLabel: '${a.maxWidth}',
+              unit: 'px',
+              onMinus: () => onPatch(maxWidth: a.maxWidth - 20),
+              onPlus: () => onPatch(maxWidth: a.maxWidth + 20),
+              onMinusBig: () => onPatch(maxWidth: a.maxWidth - 100),
+              onPlusBig: () => onPatch(maxWidth: a.maxWidth + 100),
             ),
           ],
-          if (section != null) ...[
-            const SizedBox(height: 8),
-            _ContentTypeCard(
-              arrangement: a,
-              onPatch: onPatch,
-            ),
-            const SizedBox(height: 8),
-            _BorderControls(
-              arrangement: a,
-              onPatch: onPatch,
-            ),
-            const SizedBox(height: 8),
-            _Card(
-              child: Column(
-                children: [
-                  _StepperRow(
-                    icon: Icons.title_rounded,
-                    label: 'Header',
-                    valueLabel: '${a.classFontSize}',
-                    unit: 'px',
-                    onMinus: () => onPatch(classFontDelta: -1),
-                    onPlus: () => onPatch(classFontDelta: 1),
-                    onMinusBig: () => onPatch(classFontDelta: -4),
-                    onPlusBig: () => onPatch(classFontDelta: 4),
-                    embedded: true,
-                  ),
-                  const _Divider(),
-                  _StepperRow(
-                    icon: Icons.format_list_bulleted_rounded,
-                    label: 'Items',
-                    valueLabel: '${a.itemFontSize}',
-                    unit: 'px',
-                    onMinus: () => onPatch(itemFontDelta: -1),
-                    onPlus: () => onPatch(itemFontDelta: 1),
-                    onMinusBig: () => onPatch(itemFontDelta: -4),
-                    onPlusBig: () => onPatch(itemFontDelta: 4),
-                    embedded: true,
-                  ),
-                  const _Divider(),
-                  _StepperRow(
-                    icon: Icons.swap_horiz_rounded,
-                    label: 'Width',
-                    valueLabel: '${a.maxWidth}',
-                    unit: 'px',
-                    onMinus: () => onPatch(maxWidth: a.maxWidth - 20),
-                    onPlus: () => onPatch(maxWidth: a.maxWidth + 20),
-                    onMinusBig: () => onPatch(maxWidth: a.maxWidth - 100),
-                    onPlusBig: () => onPatch(maxWidth: a.maxWidth + 100),
-                    embedded: true,
-                  ),
-                  const _Divider(),
-                  _StepperRow(
-                    icon: Icons.notes_rounded,
-                    label: 'Description',
-                    valueLabel: '${a.modifierFontSize}',
-                    unit: 'px',
-                    onMinus: () =>
-                        onPatch(modifierFontSize: a.modifierFontSize - 1),
-                    onPlus: () =>
-                        onPatch(modifierFontSize: a.modifierFontSize + 1),
-                    onMinusBig: () =>
-                        onPatch(modifierFontSize: a.modifierFontSize - 4),
-                    onPlusBig: () =>
-                        onPatch(modifierFontSize: a.modifierFontSize + 4),
-                    embedded: true,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _Label('Header'),
-                  const SizedBox(height: 8),
-                  _TwinColors(
-                    leftLabel: 'Text',
-                    leftValue: a.classForeColor,
-                    onLeft: (v) => onPatch(classForeColor: v),
-                    rightLabel: 'Fill',
-                    rightValue: a.classBackColor,
-                    onRight: (v) => onPatch(classBackColor: v),
-                    rightAllowTransparent: true,
-                  ),
-                  const SizedBox(height: 14),
-                  const _Label('Items'),
-                  const SizedBox(height: 8),
-                  _TwinColors(
-                    leftLabel: 'Text',
-                    leftValue: a.itemForeColor,
-                    onLeft: (v) => onPatch(itemForeColor: v),
-                    rightLabel: 'Fill',
-                    rightValue: a.itemBackColor,
-                    onRight: (v) => onPatch(itemBackColor: v),
-                    rightAllowTransparent: true,
-                  ),
-                  const SizedBox(height: 14),
-                  const _Label('Description text'),
-                  const SizedBox(height: 8),
-                  _ColorSwatches(
-                    value: a.modifierColor,
-                    onChanged: (v) => onPatch(modifierColor: v),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _Label('Fonts'),
-                  const SizedBox(height: 8),
-                  _FontPicker(
-                    label: 'Header',
-                    value: a.classFontName,
-                    onChanged: (v) => onPatch(classFontName: v),
-                  ),
-                  const SizedBox(height: 8),
-                  _FontPicker(
-                    label: 'Items',
-                    value: a.itemFontName,
-                    onChanged: (v) => onPatch(itemFontName: v),
-                  ),
-                  const SizedBox(height: 8),
-                  _FontPicker(
-                    label: 'Description',
-                    value: a.modifierFontName,
-                    onChanged: (v) => onPatch(modifierFontName: v),
-                  ),
-                  const SizedBox(height: 12),
-                  const _Label('Type'),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StyleToggle(
-                          label: 'Header bold',
-                          value: a.classBold,
-                          onChanged: (v) => onPatch(classBold: v),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StyleToggle(
-                          label: 'Items bold',
-                          value: a.itemBold,
-                          onChanged: (v) => onPatch(itemBold: v),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StyleToggle(
-                          label: 'HEADER caps',
-                          value: a.classUpperCase,
-                          onChanged: (v) => onPatch(classUpperCase: v),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StyleToggle(
-                          label: 'ITEMS caps',
-                          value: a.itemUpperCase,
-                          onChanged: (v) => onPatch(itemUpperCase: v),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if (!compact) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Position  ·  X ${a.xDistance}   Y ${a.yDistance}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: 11,
-                  letterSpacing: 0.2,
+          const SizedBox(height: 8),
+          _MediaControls(
+            arrangement: a,
+            onPatch: onPatch,
+            onPickImage: onPickBlockImage,
+            onPickVideo: onPickBlockVideo,
+            onClearMedia: onClearBlockMedia,
+            browsing: uploadingBackground,
+          ),
+        ],
+        if (section != null) ...[
+          const SizedBox(height: 10),
+          _ContentTypeCard(
+            arrangement: a,
+            onPatch: onPatch,
+            showRange: true,
+          ),
+          const SizedBox(height: 8),
+          _BorderControls(
+            arrangement: a,
+            onPatch: onPatch,
+          ),
+          const SizedBox(height: 8),
+          _Card(
+            child: Column(
+              children: [
+                _StepperRow(
+                  icon: Icons.title_rounded,
+                  label: 'Header',
+                  valueLabel: '${a.classFontSize}',
+                  unit: 'px',
+                  onMinus: () => onPatch(classFontDelta: -1),
+                  onPlus: () => onPatch(classFontDelta: 1),
+                  onMinusBig: () => onPatch(classFontDelta: -4),
+                  onPlusBig: () => onPatch(classFontDelta: 4),
+                  embedded: true,
                 ),
+                const _Divider(),
+                _StepperRow(
+                  icon: Icons.format_list_bulleted_rounded,
+                  label: 'Items',
+                  valueLabel: '${a.itemFontSize}',
+                  unit: 'px',
+                  onMinus: () => onPatch(itemFontDelta: -1),
+                  onPlus: () => onPatch(itemFontDelta: 1),
+                  onMinusBig: () => onPatch(itemFontDelta: -4),
+                  onPlusBig: () => onPatch(itemFontDelta: 4),
+                  embedded: true,
+                ),
+                const _Divider(),
+                _StepperRow(
+                  icon: Icons.swap_horiz_rounded,
+                  label: 'Width',
+                  valueLabel: '${a.maxWidth}',
+                  unit: 'px',
+                  onMinus: () => onPatch(maxWidth: a.maxWidth - 20),
+                  onPlus: () => onPatch(maxWidth: a.maxWidth + 20),
+                  onMinusBig: () => onPatch(maxWidth: a.maxWidth - 100),
+                  onPlusBig: () => onPatch(maxWidth: a.maxWidth + 100),
+                  embedded: true,
+                ),
+                const _Divider(),
+                _StepperRow(
+                  icon: Icons.notes_rounded,
+                  label: 'Description',
+                  valueLabel: '${a.modifierFontSize}',
+                  unit: 'px',
+                  onMinus: () =>
+                      onPatch(modifierFontSize: a.modifierFontSize - 1),
+                  onPlus: () =>
+                      onPatch(modifierFontSize: a.modifierFontSize + 1),
+                  onMinusBig: () =>
+                      onPatch(modifierFontSize: a.modifierFontSize - 4),
+                  onPlusBig: () =>
+                      onPatch(modifierFontSize: a.modifierFontSize + 4),
+                  embedded: true,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _Label('Header'),
+                const SizedBox(height: 8),
+                _TwinColors(
+                  leftLabel: 'Text',
+                  leftValue: a.classForeColor,
+                  onLeft: (v) => onPatch(classForeColor: v),
+                  rightLabel: 'Fill',
+                  rightValue: a.classBackColor,
+                  onRight: (v) => onPatch(classBackColor: v),
+                  rightAllowTransparent: true,
+                ),
+                const SizedBox(height: 14),
+                const _Label('Items'),
+                const SizedBox(height: 8),
+                _TwinColors(
+                  leftLabel: 'Text',
+                  leftValue: a.itemForeColor,
+                  onLeft: (v) => onPatch(itemForeColor: v),
+                  rightLabel: 'Fill',
+                  rightValue: a.itemBackColor,
+                  onRight: (v) => onPatch(itemBackColor: v),
+                  rightAllowTransparent: true,
+                ),
+                const SizedBox(height: 14),
+                const _Label('Description text'),
+                const SizedBox(height: 8),
+                _ColorSwatches(
+                  value: a.modifierColor,
+                  onChanged: (v) => onPatch(modifierColor: v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _Label('Fonts'),
+                const SizedBox(height: 8),
+                _FontPicker(
+                  label: 'Header',
+                  value: a.classFontName,
+                  onChanged: (v) => onPatch(classFontName: v),
+                ),
+                const SizedBox(height: 8),
+                _FontPicker(
+                  label: 'Items',
+                  value: a.itemFontName,
+                  onChanged: (v) => onPatch(itemFontName: v),
+                ),
+                const SizedBox(height: 8),
+                _FontPicker(
+                  label: 'Description',
+                  value: a.modifierFontName,
+                  onChanged: (v) => onPatch(modifierFontName: v),
+                ),
+                const SizedBox(height: 12),
+                const _Label('Type'),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _StyleToggle(
+                        label: 'Header bold',
+                        value: a.classBold,
+                        onChanged: (v) => onPatch(classBold: v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _StyleToggle(
+                        label: 'Items bold',
+                        value: a.itemBold,
+                        onChanged: (v) => onPatch(itemBold: v),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _StyleToggle(
+                        label: 'HEADER caps',
+                        value: a.classUpperCase,
+                        onChanged: (v) => onPatch(classUpperCase: v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _StyleToggle(
+                        label: 'ITEMS caps',
+                        value: a.itemUpperCase,
+                        onChanged: (v) => onPatch(itemUpperCase: v),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (!compact) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Position  ·  X ${a.xDistance}   Y ${a.yDistance}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.35),
+                fontSize: 11,
+                letterSpacing: 0.2,
               ),
-            ],
+            ),
           ],
         ],
       ],
@@ -550,10 +405,521 @@ class ArrangementStyleEditor extends StatelessWidget {
             ),
           ),
         ),
+        if (onDeleteBlock != null)
+          IconButton(
+            tooltip: 'Delete this block',
+            onPressed: creatingBlock ? null : onDeleteBlock,
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFFFF8A8A),
+              backgroundColor: const Color(0x33EF4444),
+            ),
+            icon: creatingBlock
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_outline_rounded),
+          ),
       ],
     );
   }
 }
+
+class _AddToBoardCard extends StatelessWidget {
+  const _AddToBoardCard({
+    required this.creating,
+    this.onAddMenu,
+    this.onAddPhoto,
+  });
+
+  final bool creating;
+  final VoidCallback? onAddMenu;
+  final VoidCallback? onAddPhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      emphasize: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Add to board',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Create a menu section or photo, then drag it into place.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _CreateAction(
+            icon: Icons.restaurant_menu_rounded,
+            title: 'Menu section',
+            subtitle: 'Prices from a POS class',
+            primary: true,
+            busy: creating,
+            onTap: onAddMenu,
+          ),
+          const SizedBox(height: 8),
+          _CreateAction(
+            icon: Icons.add_photo_alternate_outlined,
+            title: 'Photo or video',
+            subtitle: 'Still image or looping clip',
+            primary: false,
+            busy: creating,
+            onTap: onAddPhoto,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.touch_app_rounded,
+                color: CamaleonColors.greenSoft.withValues(alpha: 0.95),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Tap anything on the board to edit it',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerDisplayCard extends StatelessWidget {
+  const _CustomerDisplayCard({
+    required this.enabled,
+    this.onChanged,
+    this.orders = const [],
+  });
+
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
+  final List<CustomerOrderTicket> orders;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: enabled
+                ? CamaleonColors.green.withValues(alpha: 0.22)
+                : Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onChanged == null
+                  ? null
+                  : () {
+                      HapticFeedback.selectionClick();
+                      onChanged!(!enabled);
+                    },
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: enabled ? CamaleonColors.green : Colors.white12,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.point_of_sale_rounded,
+                      color: enabled
+                          ? CamaleonColors.greenSoft
+                          : Colors.white54,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Customer display',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Show open POS tickets beside the menu',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch.adaptive(
+                      value: enabled,
+                      activeThumbColor: Colors.white,
+                      activeTrackColor: CamaleonColors.green,
+                      onChanged: onChanged == null
+                          ? null
+                          : (v) {
+                              HapticFeedback.selectionClick();
+                              onChanged!(v);
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 12),
+            Text(
+              orders.isEmpty ? 'Live tickets' : 'Live tickets (${orders.length})',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 8),
+            CustomerOrderSidebarPreview(orders: orders),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CreateAction extends StatelessWidget {
+  const _CreateAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.primary,
+    required this.busy,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool primary;
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg =
+        primary ? CamaleonColors.green : Colors.white.withValues(alpha: 0.06);
+    final border = primary
+        ? CamaleonColors.green
+        : Colors.white.withValues(alpha: 0.12);
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: busy ? null : onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: primary ? 0.16 : 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: busy && primary
+                    ? const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(icon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.65),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white.withValues(alpha: 0.7),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BoardSettingsCard extends StatelessWidget {
+  const _BoardSettingsCard({
+    required this.boardMainBackColor,
+    required this.onBoardBackgroundColor,
+    required this.hasBgImage,
+    required this.hasBgVideo,
+    required this.uploadingBackground,
+    required this.multipleBoardBackgrounds,
+    this.backgroundPreviewBytes,
+    this.backgroundMediaFile = '',
+    this.onPickBackgroundImage,
+    this.onPickBackgroundVideo,
+    this.onClearBackgroundImage,
+  });
+
+  final int boardMainBackColor;
+  final ValueChanged<int> onBoardBackgroundColor;
+  final bool hasBgImage;
+  final bool hasBgVideo;
+  final Uint8List? backgroundPreviewBytes;
+  final String backgroundMediaFile;
+  final bool uploadingBackground;
+  final bool multipleBoardBackgrounds;
+  final VoidCallback? onPickBackgroundImage;
+  final VoidCallback? onPickBackgroundVideo;
+  final VoidCallback? onClearBackgroundImage;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Board',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Color and optional full-board backdrop',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _ColorSwatches(
+            value: boardMainBackColor,
+            onChanged: onBoardBackgroundColor,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _BgThumb(
+                hasImage: hasBgImage,
+                hasVideo: hasBgVideo,
+                bytes: backgroundPreviewBytes,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: uploadingBackground
+                                ? null
+                                : onPickBackgroundImage,
+                            icon: uploadingBackground
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Icon(
+                                    hasBgImage
+                                        ? Icons.photo_library_outlined
+                                        : Icons.image_outlined,
+                                    size: 16,
+                                  ),
+                            label: Text(hasBgImage ? 'Change' : 'Image'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: CamaleonColors.green,
+                              foregroundColor: Colors.white,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: FilledButton.tonalIcon(
+                            onPressed: uploadingBackground
+                                ? null
+                                : onPickBackgroundVideo,
+                            icon:
+                                const Icon(Icons.videocam_outlined, size: 16),
+                            label: Text(hasBgVideo ? 'Change' : 'Video'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.white12,
+                              foregroundColor: Colors.white,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if ((hasBgImage || hasBgVideo) &&
+                        onClearBackgroundImage != null) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: uploadingBackground
+                              ? null
+                              : onClearBackgroundImage,
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          label: const Text('Remove backdrop'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white54,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (multipleBoardBackgrounds) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0x33F59E0B),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x99F59E0B)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: Color(0xFFFBBF24), size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'More than one photo is set as board backdrop. '
+                      'Keep only one turned on.',
+                      style: TextStyle(
+                        color: Color(0xFFFFE7A3),
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BgThumb extends StatelessWidget {
+  const _BgThumb({
+    required this.hasImage,
+    required this.hasVideo,
+    this.bytes,
+  });
+
+  final bool hasImage;
+  final bool hasVideo;
+  final Uint8List? bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 72,
+        height: 72,
+        child: hasImage && bytes != null
+            ? Image.memory(bytes!, fit: BoxFit.cover, gaplessPlayback: true)
+            : ColoredBox(
+                color: Colors.white.withValues(alpha: 0.06),
+                child: Icon(
+                  hasVideo ? Icons.videocam_rounded : Icons.wallpaper_rounded,
+                  color: Colors.white38,
+                  size: 28,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
 
 class _BackgroundToggle extends StatelessWidget {
   const _BackgroundToggle({
@@ -638,10 +1004,12 @@ class _ContentTypeCard extends StatelessWidget {
   const _ContentTypeCard({
     required this.arrangement,
     required this.onPatch,
+    this.showRange = false,
   });
 
   final ArrangementBlock arrangement;
   final StylePatch onPatch;
+  final bool showRange;
 
   @override
   Widget build(BuildContext context) {
@@ -682,7 +1050,7 @@ class _ContentTypeCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'dates_special / day_specials id from POS',
+              'Special offer id from POS',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 11,
@@ -701,6 +1069,14 @@ class _ContentTypeCard extends StatelessWidget {
             onPlusBig: () => onPatch(displayOrder: a.displayOrder + 5),
             embedded: true,
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Lower numbers appear first',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11,
+            ),
+          ),
           const _Divider(),
           _StepperRow(
             icon: Icons.timer_outlined,
@@ -713,6 +1089,50 @@ class _ContentTypeCard extends StatelessWidget {
             onPlusBig: () => onPatch(displaySeconds: a.displaySeconds + 5),
             embedded: true,
           ),
+          const SizedBox(height: 4),
+          Text(
+            'How long this stays on when rotating · 0 = no timer',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11,
+            ),
+          ),
+          if (showRange) ...[
+            const _Divider(),
+            _StepperRow(
+              icon: Icons.skip_next_outlined,
+              label: 'Skip',
+              valueLabel: '${a.rangeOffset}',
+              unit: '',
+              onMinus: () => onPatch(rangeOffset: a.rangeOffset - 1),
+              onPlus: () => onPatch(rangeOffset: a.rangeOffset + 1),
+              onMinusBig: () => onPatch(rangeOffset: a.rangeOffset - 5),
+              onPlusBig: () => onPatch(rangeOffset: a.rangeOffset + 5),
+              embedded: true,
+            ),
+            const _Divider(),
+            _StepperRow(
+              icon: Icons.filter_list_rounded,
+              label: 'Count',
+              valueLabel: a.rangeCount <= 0 ? 'all' : '${a.rangeCount}',
+              unit: '',
+              onMinus: () => onPatch(rangeCount: a.rangeCount - 1),
+              onPlus: () => onPatch(rangeCount: a.rangeCount + 1),
+              onMinusBig: () => onPatch(rangeCount: a.rangeCount - 5),
+              onPlusBig: () => onPatch(rangeCount: a.rangeCount + 5),
+              embedded: true,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              a.rangeCount <= 0
+                  ? 'Show every item in this class'
+                  : 'Show ${a.rangeCount} items starting after ${a.rangeOffset}',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -723,59 +1143,147 @@ class _MediaControls extends StatelessWidget {
   const _MediaControls({
     required this.arrangement,
     required this.onPatch,
-    this.onBrowseMediaFile,
+    this.onPickImage,
+    this.onPickVideo,
+    this.onClearMedia,
     this.browsing = false,
   });
 
   final ArrangementBlock arrangement;
   final StylePatch onPatch;
-  final VoidCallback? onBrowseMediaFile;
+  final VoidCallback? onPickImage;
+  final VoidCallback? onPickVideo;
+  final VoidCallback? onClearMedia;
   final bool browsing;
 
   @override
   Widget build(BuildContext context) {
     final a = arrangement;
     final opacityPct = (a.clampedMediaOpacity * 100).round();
+    final hasImage = a.pictureBytes != null && a.pictureBytes!.isNotEmpty;
+    final hasVideo = a.mediaType == ArrangementMediaType.video &&
+        (a.mediaFile.isNotEmpty || a.pictureRoute.isNotEmpty);
+    final hasMedia = hasImage || hasVideo || a.hasPicture;
+
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _Label('Media'),
+          const _Label('Photo / video'),
           const SizedBox(height: 8),
-          Text(
-            'Type',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.7),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          if (hasImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.memory(
+                  a.pictureBytes!,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                ),
+              ),
+            )
+          else if (hasVideo)
+            Container(
+              height: 64,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.videocam_rounded,
+                      color: Colors.white70, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      a.pictureRoute.trim().isNotEmpty
+                          ? a.pictureRoute.trim()
+                          : a.mediaFile,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              height: 64,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Text(
+                'No file yet · pick an image or video',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: 12,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           Row(
             children: [
-              for (final t in ArrangementMediaType.values) ...[
-                if (t != ArrangementMediaType.values.first)
-                  const SizedBox(width: 6),
-                Expanded(
-                  child: _StyleToggle(
-                    label: t.dbValue,
-                    value: a.mediaType == t,
-                    onChanged: (_) => onPatch(mediaType: t),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: browsing ? null : onPickImage,
+                  icon: browsing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          hasImage
+                              ? Icons.photo_library_outlined
+                              : Icons.add_photo_alternate_outlined,
+                          size: 18,
+                        ),
+                  label: Text(hasImage ? 'Change image' : 'Image'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: CamaleonColors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: browsing ? null : onPickVideo,
+                  icon: const Icon(Icons.videocam_outlined, size: 18),
+                  label: Text(hasVideo ? 'Change video' : 'Video'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white12,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              if (hasMedia && onClearMedia != null) ...[
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: 'Clear media',
+                  onPressed: browsing ? null : onClearMedia,
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white12,
+                    foregroundColor: Colors.white70,
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded),
                 ),
               ],
             ],
           ),
-          if (a.mediaType != ArrangementMediaType.none) ...[
-            const SizedBox(height: 10),
-            _MediaFileField(
-              value: a.mediaFile,
-              browsing: browsing,
-              onChanged: (v) => onPatch(mediaFile: v),
-              onBrowse: onBrowseMediaFile,
-              isVideo: a.mediaType == ArrangementMediaType.video,
-            ),
-          ],
           const SizedBox(height: 10),
           Text(
             'Fit',
@@ -867,137 +1375,6 @@ class _MediaControls extends StatelessWidget {
   }
 }
 
-class _MediaFileField extends StatefulWidget {
-  const _MediaFileField({
-    required this.value,
-    required this.onChanged,
-    this.onBrowse,
-    this.browsing = false,
-    this.isVideo = false,
-  });
-
-  final String value;
-  final ValueChanged<String> onChanged;
-  final VoidCallback? onBrowse;
-  final bool browsing;
-  final bool isVideo;
-
-  @override
-  State<_MediaFileField> createState() => _MediaFileFieldState();
-}
-
-class _MediaFileFieldState extends State<_MediaFileField> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.value);
-  }
-
-  @override
-  void didUpdateWidget(covariant _MediaFileField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value &&
-        widget.value != _controller.text) {
-      _controller.text = widget.value;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          widget.isVideo ? 'Video file' : 'Image file',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                cursorColor: CamaleonColors.greenSoft,
-                decoration: InputDecoration(
-                  hintText: widget.isVideo
-                      ? 'path/video.mp4'
-                      : 'path/image.jpg',
-                  hintStyle:
-                      TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-                  isDense: true,
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.06),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.white24),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.white24),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: CamaleonColors.green),
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                ),
-                onChanged: widget.onChanged,
-                onSubmitted: widget.onChanged,
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 44,
-              child: FilledButton.tonalIcon(
-                onPressed: widget.browsing ? null : widget.onBrowse,
-                icon: widget.browsing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.folder_open_rounded, size: 18),
-                label: const Text('Browse'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white12,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Text(
-          widget.isVideo
-              ? 'Browse opens the system file picker. Path is saved in media_file.'
-              : 'Browse saves the image in bb_pic and the name in media_file.',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.4),
-            fontSize: 11,
-            height: 1.3,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _BorderControls extends StatelessWidget {
   const _BorderControls({
     required this.arrangement,
@@ -1070,18 +1447,25 @@ class _BorderControls extends StatelessWidget {
 }
 
 class _Card extends StatelessWidget {
-  const _Card({required this.child});
+  const _Card({required this.child, this.emphasize = false});
 
   final Widget child;
+  final bool emphasize;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white10),
+        color: emphasize
+            ? CamaleonColors.green.withValues(alpha: 0.12)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: emphasize
+              ? CamaleonColors.green.withValues(alpha: 0.45)
+              : Colors.white10,
+        ),
       ),
       child: child,
     );

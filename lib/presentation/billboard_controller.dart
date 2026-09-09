@@ -22,6 +22,8 @@ enum BillboardPhase { bootstrapping, needsConnection, loading, ready, error }
 
 enum AutoConnectOutcome { success, needsPassword, needsDatabase, failed }
 
+enum _PendingBoardBg { none, image, video, clear }
+
 class AutoConnectResult {
   const AutoConnectResult({
     required this.outcome,
@@ -62,6 +64,8 @@ class BillboardController extends ChangeNotifier {
   String detectedComputerName = '';
   bool sortAlphabetical = false;
   int refreshSeconds = 5;
+  bool customerDisplay = false;
+  bool _customerDisplaySaved = false;
   String? errorMessage;
   BillboardBoard? board;
   bool testing = false;
@@ -81,6 +85,23 @@ class BillboardController extends ChangeNotifier {
   bool layoutEditing = false;
   bool layoutDirty = false;
   bool savingLayout = false;
+
+  /// Negative local IDs for blocks created in this session (INSERT on Save).
+  int _nextTempId = -1;
+
+  /// Rows removed in UI during edit — deleted from DB only on Save.
+  final List<int> _sessionDeletedIds = [];
+
+  /// Picture ids whose media changed in memory — persisted on Save.
+  final Set<int> _pendingMediaIds = {};
+
+  _PendingBoardBg _pendingBoardBg = _PendingBoardBg.none;
+  List<int>? _pendingBoardBgImageBytes;
+  String? _pendingBoardBgVideoFile;
+  String? _pendingBoardBgVideoRoute;
+
+  /// Live open tickets for Customer display (from POS `it_tcuenta` / `it_torder`).
+  List<CustomerOrderTicket> openOrders = const [];
 
   Timer? _refreshTimer;
   bool _reloadInFlight = false;
@@ -106,6 +127,8 @@ class BillboardController extends ChangeNotifier {
     }
     sortAlphabetical = await _connectionRepo.loadSortAlphabetical();
     refreshSeconds = await _connectionRepo.loadRefreshSeconds();
+    customerDisplay = await _connectionRepo.loadCustomerDisplay();
+    _customerDisplaySaved = customerDisplay;
 
     hasSavedConnection = connection.isComplete;
     isFirstLaunch = !hasSavedConnection;
@@ -153,6 +176,33 @@ class BillboardController extends ChangeNotifier {
     await _connectionRepo.saveSortAlphabetical(alphabetical);
     await _connectionRepo.saveRefreshSeconds(refresh);
     notifyListeners();
+  }
+
+  void setCustomerDisplay(bool enabled) {
+    if (!layoutEditing) return;
+    if (customerDisplay == enabled) return;
+    customerDisplay = enabled;
+    markLayoutDirty();
+    notifyListeners();
+    if (enabled) {
+      unawaited(_refreshOpenOrders().then((_) => notifyListeners()));
+    }
+  }
+
+  void _clearSessionPending() {
+    _sessionDeletedIds.clear();
+    _pendingMediaIds.clear();
+    _pendingBoardBg = _PendingBoardBg.none;
+    _pendingBoardBgImageBytes = null;
+    _pendingBoardBgVideoFile = null;
+    _pendingBoardBgVideoRoute = null;
+    _nextTempId = -1;
+  }
+
+  int _allocTempId() {
+    final id = _nextTempId;
+    _nextTempId -= 1;
+    return id;
   }
 
   bool applyQrPayload(String raw) {
@@ -529,6 +579,7 @@ class BillboardController extends ChangeNotifier {
         compName: computerName,
         sortAlphabetical: sortAlphabetical,
       );
+      if (customerDisplay) await _refreshOpenOrders();
       phase = BillboardPhase.ready;
       isFirstLaunch = false;
       _scheduleRefresh();
@@ -564,6 +615,9 @@ class BillboardController extends ChangeNotifier {
       }
       if (layoutEditing || layoutDirty || savingLayout) return;
       board = next;
+      if (customerDisplay || full) {
+        await _refreshOpenOrders();
+      }
       notifyListeners();
     } catch (e) {
       if (kDebugMode) debugPrint('Silent reload failed: $e');
@@ -572,9 +626,21 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshOpenOrders() async {
+    try {
+      openOrders = await _billboardRepo.loadOpenCustomerOrders();
+    } catch (e) {
+      if (kDebugMode) debugPrint('Open orders refresh failed: $e');
+    }
+  }
+
   void beginLayoutEdit() {
     if (phase != BillboardPhase.ready || board == null) return;
     layoutEditing = true;
+    creatingBlock = false;
+    uploadingBoardBackground = false;
+    _clearSessionPending();
+    _customerDisplaySaved = customerDisplay;
     _refreshTimer?.cancel();
     notifyListeners();
   }
@@ -592,6 +658,9 @@ class BillboardController extends ChangeNotifier {
     layoutEditing = false;
     layoutDirty = false;
     savingLayout = false;
+    customerDisplay = _customerDisplaySaved;
+    // Temp blocks never hit the DB — Discard just reloads the last saved board.
+    _clearSessionPending();
     notifyListeners();
     await reloadSilent(full: true);
     if (phase == BillboardPhase.ready) _scheduleRefresh();
@@ -716,6 +785,8 @@ class BillboardController extends ChangeNotifier {
     double? mediaOpacity,
     int? displayOrder,
     int? displaySeconds,
+    int? rangeOffset,
+    int? rangeCount,
     int? borderWidth,
     String? borderColor,
     bool? videoLoop,
@@ -723,6 +794,8 @@ class BillboardController extends ChangeNotifier {
   }) {
     final b = board;
     if (b == null || !layoutEditing) return;
+
+    var rangeChanged = false;
 
     ArrangementBlock patch(ArrangementBlock a) {
       var next = a;
@@ -799,19 +872,6 @@ class BillboardController extends ChangeNotifier {
             mediaType: mediaType,
             clearPictureBytes: true,
           );
-          final name = computerName.trim();
-          if (name.isNotEmpty) {
-            unawaited(
-              _billboardRepo.updateArrangementMedia(
-                id: arrangementId,
-                compName: name,
-                mediaType: ArrangementMediaType.video,
-                mediaFile: next.mediaFile,
-                pictureRoute: next.pictureRoute,
-                pictureBytes: const <int>[],
-              ),
-            );
-          }
         } else if (mediaType == ArrangementMediaType.image) {
           next = next.copyWith(mediaType: mediaType);
         } else {
@@ -822,6 +882,7 @@ class BillboardController extends ChangeNotifier {
             clearPictureBytes: true,
           );
         }
+        if (arrangementId != 0) _pendingMediaIds.add(arrangementId);
       }
       if (mediaFile != null) {
         next = next.copyWith(
@@ -829,6 +890,7 @@ class BillboardController extends ChangeNotifier {
           // Live preview uses pictureRoute; keep it in sync for IMAGE paths.
           pictureRoute: mediaFile.isNotEmpty ? mediaFile : next.pictureRoute,
         );
+        if (arrangementId != 0) _pendingMediaIds.add(arrangementId);
       }
       if (mediaFit != null) next = next.copyWith(mediaFit: mediaFit);
       if (mediaOpacity != null) {
@@ -840,7 +902,21 @@ class BillboardController extends ChangeNotifier {
         next = next.copyWith(displayOrder: displayOrder.clamp(0, 100000));
       }
       if (displaySeconds != null) {
-        next = next.copyWith(displaySeconds: displaySeconds.clamp(1, 3600));
+        next = next.copyWith(displaySeconds: displaySeconds.clamp(0, 3600));
+      }
+      if (rangeOffset != null || rangeCount != null) {
+        var o = rangeOffset ?? next.rangeOffset;
+        var c = rangeCount ?? next.rangeCount;
+        // First Skip while "all" → start a sensible window (Classic style).
+        if (rangeOffset != null && c <= 0) c = 12;
+        final encoded = ArrangementBlock.encodeRangeItems(
+          offset: o,
+          count: c,
+        );
+        if (encoded != next.rangeItems) {
+          next = next.copyWith(rangeItems: encoded);
+          rangeChanged = true;
+        }
       }
       if (borderWidth != null) {
         final w = borderWidth.clamp(0, 200);
@@ -902,6 +978,48 @@ class BillboardController extends ChangeNotifier {
     );
     layoutDirty = true;
     notifyListeners();
+    if (rangeChanged) {
+      unawaited(_refreshSectionItems(arrangementId));
+    }
+  }
+
+  Future<void> _refreshSectionItems(int arrangementId) async {
+    final b = board;
+    if (b == null || !layoutEditing) return;
+    MenuSection? target;
+    for (final s in b.sections) {
+      if (s.arrangement.id == arrangementId) {
+        target = s;
+        break;
+      }
+    }
+    if (target == null) return;
+
+    try {
+      final loaded = await _billboardRepo.fillClassView(
+        target.arrangement,
+        sortAlphabetical: sortAlphabetical,
+      );
+      final current = board;
+      if (current == null || !layoutEditing) return;
+      board = current.copyWith(
+        sections: [
+          for (final s in current.sections)
+            if (s.arrangement.id == arrangementId)
+              s.copyWith(
+                className: loaded.className,
+                items: loaded.items,
+              )
+            else
+              s,
+        ],
+      );
+      notifyListeners();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('Refresh section items after range change failed: $e\n$st');
+      }
+    }
   }
 
   void setBoardBackgroundColor(int qbIndex) {
@@ -929,37 +1047,54 @@ class BillboardController extends ChangeNotifier {
 
   bool uploadingBoardBackground = false;
 
-  /// Picks [bytes] into DB as board background and refreshes picture blocks in memory.
+  /// Stages a board background image in memory — persisted on Save.
   Future<bool> setBoardBackgroundImage(List<int> bytes) async {
     final b = board;
-    final name = computerName.trim();
-    if (b == null || name.isEmpty || bytes.isEmpty) return false;
-    if (!layoutEditing) return false;
+    if (b == null || bytes.isEmpty || !layoutEditing) return false;
 
     uploadingBoardBackground = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      await _billboardRepo.upsertBoardBackgroundImage(
-        compName: name,
-        bytes: bytes,
-        mainBackColor: b.mainBackColor,
-      );
-      final pics = await _billboardRepo.loadPictureArrangements(name);
+      _pendingBoardBg = _PendingBoardBg.image;
+      _pendingBoardBgImageBytes = List<int>.from(bytes);
+      _pendingBoardBgVideoFile = null;
+      _pendingBoardBgVideoRoute = null;
+
+      final others = [
+        for (final p in b.pictures)
+          if (!p.arrangement.isBoardBackground) p,
+      ];
+      final existing = b.boardBackgroundPictures.isEmpty
+          ? null
+          : b.boardBackgroundPictures.first;
+      final id = existing?.arrangement.id ?? -1;
       board = b.copyWith(
         pictures: [
-          for (final a in pics)
-            PictureBlock(
-              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
+          ...others,
+          PictureBlock(
+            arrangement: ArrangementBlock(
+              id: id,
+              compName: b.compName,
+              screenName: 'Board background',
+              maxWidth: 1920,
+              mainBackColor: b.mainBackColor,
+              usePicture: true,
+              boardBackground: true,
+              mediaType: ArrangementMediaType.image,
+              mediaFit: ArrangementMediaFit.cover,
+              pictureBytes: Uint8List.fromList(bytes),
             ),
+          ),
         ],
       );
+      layoutDirty = true;
       uploadingBoardBackground = false;
       notifyListeners();
       return true;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('Board background upload failed: $e\n$st');
+      if (kDebugMode) debugPrint('Board background stage failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       uploadingBoardBackground = false;
       notifyListeners();
@@ -967,7 +1102,7 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
-  /// Sets a looping/muted video path as the full-board background.
+  /// Stages a board background video in memory — persisted on Save.
   Future<bool> setBoardBackgroundVideo({
     required String mediaFile,
     String pictureRoute = '',
@@ -975,37 +1110,56 @@ class BillboardController extends ChangeNotifier {
     bool videoMuted = true,
   }) async {
     final b = board;
-    final name = computerName.trim();
-    if (b == null || name.isEmpty || mediaFile.trim().isEmpty) return false;
-    if (!layoutEditing) return false;
+    if (b == null || mediaFile.trim().isEmpty || !layoutEditing) return false;
 
     uploadingBoardBackground = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      await _billboardRepo.upsertBoardBackgroundVideo(
-        compName: name,
-        mediaFile: mediaFile,
-        pictureRoute: pictureRoute,
-        mainBackColor: b.mainBackColor,
-        videoLoop: videoLoop,
-        videoMuted: videoMuted,
-      );
-      final pics = await _billboardRepo.loadPictureArrangements(name);
+      final file = mediaFile.trim();
+      final route = pictureRoute.trim().isNotEmpty ? pictureRoute.trim() : file;
+      _pendingBoardBg = _PendingBoardBg.video;
+      _pendingBoardBgVideoFile = file;
+      _pendingBoardBgVideoRoute = route;
+      _pendingBoardBgImageBytes = null;
+
+      final others = [
+        for (final p in b.pictures)
+          if (!p.arrangement.isBoardBackground) p,
+      ];
+      final existing = b.boardBackgroundPictures.isEmpty
+          ? null
+          : b.boardBackgroundPictures.first;
+      final id = existing?.arrangement.id ?? -1;
       board = b.copyWith(
         pictures: [
-          for (final a in pics)
-            PictureBlock(
-              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
+          ...others,
+          PictureBlock(
+            arrangement: ArrangementBlock(
+              id: id,
+              compName: b.compName,
+              screenName: 'Board background',
+              maxWidth: 1920,
+              mainBackColor: b.mainBackColor,
+              usePicture: true,
+              boardBackground: true,
+              mediaType: ArrangementMediaType.video,
+              mediaFile: file,
+              pictureRoute: route,
+              mediaFit: ArrangementMediaFit.cover,
+              videoLoop: videoLoop,
+              videoMuted: videoMuted,
             ),
+          ),
         ],
       );
+      layoutDirty = true;
       uploadingBoardBackground = false;
       notifyListeners();
       return true;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('Board background video failed: $e\n$st');
+      if (kDebugMode) debugPrint('Board background video stage failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       uploadingBoardBackground = false;
       notifyListeners();
@@ -1013,32 +1167,32 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
-  /// Removes the dedicated board-background image from DB (and unsets flags).
+  /// Stages removal of board background — persisted on Save.
   Future<bool> clearBoardBackgroundImage() async {
     final b = board;
-    final name = computerName.trim();
-    if (b == null || name.isEmpty || !layoutEditing) return false;
+    if (b == null || !layoutEditing) return false;
 
     uploadingBoardBackground = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      await _billboardRepo.clearBoardBackgroundImage(name);
-      final pics = await _billboardRepo.loadPictureArrangements(name);
+      _pendingBoardBg = _PendingBoardBg.clear;
+      _pendingBoardBgImageBytes = null;
+      _pendingBoardBgVideoFile = null;
+      _pendingBoardBgVideoRoute = null;
       board = b.copyWith(
         pictures: [
-          for (final a in pics)
-            PictureBlock(
-              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
-            ),
+          for (final p in b.pictures)
+            if (!p.arrangement.isBoardBackground) p,
         ],
       );
+      layoutDirty = true;
       uploadingBoardBackground = false;
       notifyListeners();
       return true;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('Clear board background failed: $e\n$st');
+      if (kDebugMode) debugPrint('Clear board background stage failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       uploadingBoardBackground = false;
       notifyListeners();
@@ -1046,7 +1200,176 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
-  /// Applies a file picked from Explorer / Android picker to a photo block.
+  bool creatingBlock = false;
+
+  Future<List<MenuClassOption>> listMenuClasses() async {
+    try {
+      return await _billboardRepo.listMenuClasses();
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('List menu classes failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      notifyListeners();
+      return const [];
+    }
+  }
+
+  /// Creates a new menu section in memory (INSERT on Save). Returns temp ID.
+  Future<int?> addMenuBlock({
+    required int classId,
+    required String className,
+  }) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || !layoutEditing) return null;
+    if (classId <= 0) return null;
+
+    creatingBlock = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final index = b.sections.length + b.pictures.length;
+      final id = _allocTempId();
+      final title = className.trim().isEmpty ? 'Screen' : className.trim();
+      final block = ArrangementBlock(
+        id: id,
+        compName: name,
+        screenName: title,
+        classId: classId,
+        xDistance: 40 + (index % 4) * 36,
+        yDistance: 40 + index * 36,
+        maxWidth: 600,
+        mainBackColor: b.mainBackColor,
+        classForeColor: 15,
+        classBackColor: 2,
+        itemForeColor: 15,
+        itemBackColor: 0,
+        displayOrder: index + 1,
+        displaySeconds: 0,
+        usePicture: false,
+      );
+      final section = await _billboardRepo.fillClassView(
+        block,
+        sortAlphabetical: sortAlphabetical,
+      );
+
+      board = b.copyWith(sections: [...b.sections, section]);
+      _sessionDeletedIds.remove(id);
+      layoutDirty = true;
+      creatingBlock = false;
+      notifyListeners();
+      return id;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Add menu block failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      creatingBlock = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Creates a new empty photo/media block in memory (INSERT on Save).
+  Future<int?> addPhotoBlock({String screenName = 'Photo'}) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || !layoutEditing) return null;
+
+    creatingBlock = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final visiblePics =
+          b.pictures.where((p) => !p.arrangement.isBoardBackground).length;
+      final index = b.sections.length + visiblePics;
+      final id = _allocTempId();
+      final title = screenName.trim().isEmpty ? 'Photo' : screenName.trim();
+      final block = ArrangementBlock(
+        id: id,
+        compName: name,
+        screenName: title,
+        classId: 0,
+        xDistance: 80 + (index % 4) * 40,
+        yDistance: 80 + index * 40,
+        maxWidth: 400,
+        mainBackColor: b.mainBackColor,
+        displayOrder: index + 1,
+        displaySeconds: 0,
+        usePicture: true,
+        itemBackColor: 15,
+        itemForeColor: 0,
+      );
+
+      board = b.copyWith(
+        pictures: [
+          ...b.pictures,
+          PictureBlock(arrangement: block),
+        ],
+      );
+      _sessionDeletedIds.remove(id);
+      layoutDirty = true;
+      creatingBlock = false;
+      notifyListeners();
+      return id;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Add photo block failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      creatingBlock = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Removes the block from the board in memory — DB delete happens on Save.
+  Future<bool> deleteArrangement(int arrangementId) async {
+    final b = board;
+    if (b == null || arrangementId == 0) {
+      errorMessage = 'Nothing selected to delete';
+      notifyListeners();
+      return false;
+    }
+    if (!layoutEditing) {
+      errorMessage = 'Enter Edit mode before deleting';
+      notifyListeners();
+      return false;
+    }
+
+    creatingBlock = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      // Temp (never-inserted) blocks: drop from memory only.
+      if (arrangementId < 0) {
+        _pendingMediaIds.remove(arrangementId);
+      } else if (!_sessionDeletedIds.contains(arrangementId)) {
+        _sessionDeletedIds.add(arrangementId);
+      }
+
+      board = b.copyWith(
+        sections: [
+          for (final s in b.sections)
+            if (s.arrangement.id != arrangementId) s,
+        ],
+        pictures: [
+          for (final p in b.pictures)
+            if (p.arrangement.id != arrangementId) p,
+        ],
+      );
+      _pendingMediaIds.remove(arrangementId);
+      layoutDirty = true;
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Delete arrangement failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      return false;
+    } finally {
+      creatingBlock = false;
+      notifyListeners();
+    }
+  }
+
+  /// Stages media on a photo block in memory — persisted on Save.
   ///
   /// IMAGE → `bb_pic` blob + `media_file` name (both).
   /// VIDEO → `media_file` / `bbpic_route` path only (no huge blob).
@@ -1058,8 +1381,7 @@ class BillboardController extends ChangeNotifier {
     List<int>? pictureBytes,
   }) async {
     final b = board;
-    final name = computerName.trim();
-    if (b == null || name.isEmpty || !layoutEditing) return false;
+    if (b == null || !layoutEditing) return false;
     if (mediaType == ArrangementMediaType.none) return false;
 
     uploadingBoardBackground = true;
@@ -1067,22 +1389,6 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _billboardRepo.updateArrangementMedia(
-        id: arrangementId,
-        compName: name,
-        mediaType: mediaType,
-        mediaFile: mediaFile,
-        pictureRoute: pictureRoute.isNotEmpty ? pictureRoute : mediaFile,
-        // IMAGE: write blob. VIDEO: clear old bb_pic so image doesn't stick.
-        pictureBytes: mediaType == ArrangementMediaType.image &&
-                pictureBytes != null &&
-                pictureBytes.isNotEmpty
-            ? pictureBytes
-            : (mediaType == ArrangementMediaType.video
-                ? const <int>[]
-                : null),
-      );
-
       board = b.copyWith(
         pictures: [
           for (final p in b.pictures)
@@ -1105,6 +1411,8 @@ class BillboardController extends ChangeNotifier {
               p,
         ],
       );
+      if (arrangementId != 0) _pendingMediaIds.add(arrangementId);
+      layoutDirty = true;
       uploadingBoardBackground = false;
       notifyListeners();
       return true;
@@ -1117,10 +1425,60 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
-  /// Writes current section/picture positions + styles to `bb_arrangement`.
+  /// Stages clearing media on a photo block — persisted on Save.
+  Future<bool> clearBlockMedia(int arrangementId) async {
+    final b = board;
+    if (b == null || !layoutEditing || arrangementId == 0) {
+      return false;
+    }
+
+    uploadingBoardBackground = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      board = b.copyWith(
+        pictures: [
+          for (final p in b.pictures)
+            if (p.arrangement.id == arrangementId)
+              p.copyWith(
+                arrangement: p.arrangement.copyWith(
+                  mediaType: ArrangementMediaType.none,
+                  mediaFile: '',
+                  pictureRoute: '',
+                  clearPictureBytes: true,
+                ),
+              )
+            else
+              p,
+        ],
+      );
+      _pendingMediaIds.add(arrangementId);
+      layoutDirty = true;
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Clear block media failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Persists pending edit-session changes (layout, media, deletes, prefs).
+  ///
+  /// Retries the MySQL transaction a few times on failure (safe: each attempt
+  /// rolls back fully before the next try). Draft state stays in memory.
   Future<bool> saveLayoutEdits() async {
     final b = board;
-    if (b == null || !layoutDirty) {
+    if (b == null) {
+      layoutEditing = false;
+      notifyListeners();
+      return true;
+    }
+    if (!layoutDirty) {
       layoutEditing = false;
       notifyListeners();
       if (phase == BillboardPhase.ready) _scheduleRefresh();
@@ -1131,35 +1489,178 @@ class BillboardController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
 
-    try {
-      final name = computerName.trim();
+    const maxAttempts = 3;
+    Object? lastError;
+    StackTrace? lastStack;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final name = computerName.trim();
+        await _persistLayoutTransaction(b, name);
+
+        // Prefs are local — outside MySQL txn
+        await _connectionRepo.saveCustomerDisplay(customerDisplay);
+        _customerDisplaySaved = customerDisplay;
+
+        _clearSessionPending();
+        layoutDirty = false;
+        layoutEditing = false;
+        savingLayout = false;
+        notifyListeners();
+
+        await reloadSilent(full: true);
+        _scheduleRefresh();
+        return true;
+      } catch (e, st) {
+        lastError = e;
+        lastStack = st;
+        if (kDebugMode) {
+          debugPrint('Save layout attempt $attempt/$maxAttempts failed: $e\n$st');
+        }
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+      }
+    }
+
+    if (kDebugMode) {
+      debugPrint('Save layout failed after $maxAttempts attempts: $lastError\n$lastStack');
+    }
+    errorMessage = AppFailure.message(lastError ?? 'Save failed');
+    savingLayout = false;
+    notifyListeners();
+    return false;
+  }
+
+  Future<void> _persistLayoutTransaction(BillboardBoard b, String name) async {
+    await _billboardRepo.runInTransaction(() async {
+      // 1) Pending deletes (real rows only)
+      for (final id in List<int>.of(_sessionDeletedIds)) {
+        if (id > 0) await _billboardRepo.deleteArrangementById(id);
+      }
+
+      // 2) Board background
+      switch (_pendingBoardBg) {
+        case _PendingBoardBg.image:
+          final bytes = _pendingBoardBgImageBytes;
+          if (bytes != null && bytes.isNotEmpty) {
+            await _billboardRepo.upsertBoardBackgroundImage(
+              compName: name,
+              bytes: bytes,
+              mainBackColor: b.mainBackColor,
+            );
+          }
+        case _PendingBoardBg.video:
+          final file = _pendingBoardBgVideoFile?.trim() ?? '';
+          if (file.isNotEmpty) {
+            await _billboardRepo.upsertBoardBackgroundVideo(
+              compName: name,
+              mediaFile: file,
+              pictureRoute: _pendingBoardBgVideoRoute ?? file,
+              mainBackColor: b.mainBackColor,
+            );
+          }
+        case _PendingBoardBg.clear:
+          await _billboardRepo.clearBoardBackgroundImage(name);
+        case _PendingBoardBg.none:
+          break;
+      }
+
+      // 3) INSERT new blocks (temp negative IDs) then UPDATE style/layout
+      final idMap = <int, int>{};
+
       for (final s in b.sections) {
+        final a = s.arrangement;
+        if (a.id >= 0) continue;
+        final newId = await _billboardRepo.insertMenuArrangement(
+          compName: name,
+          classId: a.classId,
+          screenName: a.screenName,
+          xDistance: a.xDistance,
+          yDistance: a.yDistance,
+          maxWidth: a.maxWidth,
+          mainBackColor: b.mainBackColor,
+          displayOrder: a.displayOrder,
+        );
+        idMap[a.id] = newId;
         await _billboardRepo.updateArrangementLayout(
-          id: s.arrangement.id,
+          id: newId,
+          compName: name,
+          arrangement: a.copyWith(id: newId, mainBackColor: b.mainBackColor),
+        );
+      }
+
+      for (final p in b.pictures) {
+        final a = p.arrangement;
+        if (a.id >= 0 || a.isBoardBackground) continue;
+        final newId = await _billboardRepo.insertPhotoArrangement(
+          compName: name,
+          screenName: a.screenName,
+          xDistance: a.xDistance,
+          yDistance: a.yDistance,
+          maxWidth: a.maxWidth,
+          mainBackColor: b.mainBackColor,
+          displayOrder: a.displayOrder,
+        );
+        idMap[a.id] = newId;
+        await _billboardRepo.updateArrangementLayout(
+          id: newId,
+          compName: name,
+          arrangement: a.copyWith(id: newId, mainBackColor: b.mainBackColor),
+        );
+      }
+
+      // 4) Layout + style for existing blocks
+      for (final s in b.sections) {
+        final id = s.arrangement.id;
+        if (id <= 0) continue;
+        if (_sessionDeletedIds.contains(id)) continue;
+        await _billboardRepo.updateArrangementLayout(
+          id: id,
           compName: name,
           arrangement: s.arrangement.copyWith(mainBackColor: b.mainBackColor),
         );
       }
       for (final p in b.pictures) {
+        final id = p.arrangement.id;
+        if (id <= 0) continue;
+        if (_sessionDeletedIds.contains(id)) continue;
+        if (p.arrangement.isBoardBackground) continue;
         await _billboardRepo.updateArrangementLayout(
-          id: p.arrangement.id,
+          id: id,
           compName: name,
           arrangement: p.arrangement.copyWith(mainBackColor: b.mainBackColor),
         );
       }
-      layoutDirty = false;
-      layoutEditing = false;
-      savingLayout = false;
-      notifyListeners();
-      _scheduleRefresh();
-      return true;
-    } catch (e, st) {
-      if (kDebugMode) debugPrint('Save layout failed: $e\n$st');
-      errorMessage = AppFailure.message(e);
-      savingLayout = false;
-      notifyListeners();
-      return false;
-    }
+
+      // 5) Media blobs / paths (map temp → real IDs)
+      for (final oldId in List<int>.of(_pendingMediaIds)) {
+        final id = idMap[oldId] ?? oldId;
+        if (id <= 0 || _sessionDeletedIds.contains(oldId)) continue;
+        PictureBlock? pic;
+        for (final p in b.pictures) {
+          if (p.arrangement.id == oldId) {
+            pic = p;
+            break;
+          }
+        }
+        if (pic == null) continue;
+        final a = pic.arrangement;
+        await _billboardRepo.updateArrangementMedia(
+          id: id,
+          compName: name,
+          mediaType: a.mediaType,
+          mediaFile: a.mediaFile,
+          pictureRoute: a.pictureRoute,
+          pictureBytes: a.mediaType == ArrangementMediaType.image
+              ? (a.pictureBytes ?? const <int>[])
+              : (a.mediaType == ArrangementMediaType.none ||
+                      a.mediaType == ArrangementMediaType.video
+                  ? const <int>[]
+                  : null),
+        );
+      }
+    });
   }
 
   void _scheduleRefresh() {

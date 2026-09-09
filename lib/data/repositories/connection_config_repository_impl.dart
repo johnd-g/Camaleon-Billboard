@@ -25,6 +25,7 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   static const _kCompName = 'billboard_comp_name';
   static const _kSortAbc = 'arrangeabc';
   static const _kRefresh = 'refresh_seconds';
+  static const _kCustomerDisplay = 'customer_display';
 
   @override
   Future<DbConnectionConfig> load() async {
@@ -84,6 +85,18 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   Future<void> saveRefreshSeconds(int seconds) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kRefresh, seconds.clamp(5, 3600));
+  }
+
+  @override
+  Future<bool> loadCustomerDisplay() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kCustomerDisplay) ?? false;
+  }
+
+  @override
+  Future<void> saveCustomerDisplay(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kCustomerDisplay, value);
   }
 
   @override

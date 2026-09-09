@@ -16,6 +16,7 @@ import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/arrangement_style_editor.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/billboard_video_panel.dart';
+import 'package:camaleon_billboard/presentation/board/widgets/customer_order_preview.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/menu_section_panel.dart';
 import 'package:camaleon_billboard/presentation/connection/connection_page.dart';
 
@@ -140,6 +141,10 @@ class _BoardPageState extends State<BoardPage> {
         if (!p.arrangement.isBoardBackground) p,
     ];
 
+    final orderColW = c.customerDisplay
+        ? (screen.width >= 900 ? 320.0 : 280.0)
+        : 0.0;
+
     // Chrome/buttons stay OUTSIDE the double-tap detector so entering edit
     // mode cannot dispose DoubleTapRecognizer mid-tap (setState-during-build).
     return Scaffold(
@@ -154,206 +159,225 @@ class _BoardPageState extends State<BoardPage> {
             bottom: editing && !sideEditor
                 ? (selectedSection == null ? 88 : 210)
                 : 0,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onDoubleTap: editing
-                  ? null
-                  : () => setState(() => _chromeHidden = !_chromeHidden),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return InteractiveViewer(
-                    // Pan/zoom fights with drag-to-move while editing.
-                    panEnabled: !editing,
-                    scaleEnabled: !editing,
-                    minScale: 0.4,
-                    maxScale: 3,
-                    child: SizedBox(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          // One full-viewport fill — avoids "two backgrounds"
-                          // (letterbox bars vs design canvas).
-                          ColoredBox(color: bg),
-                          for (final pic in activeBgPictures)
-                            Positioned.fill(
-                              key: ValueKey('bg-${pic.arrangement.id}'),
-                              child: editing
-                                  ? GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () => _selectBlock(
-                                        pic.arrangement.id,
-                                      ),
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(
-                                            color: _selectedId ==
-                                                    pic.arrangement.id
-                                                ? CamaleonColors.green
-                                                : Colors.transparent,
-                                            width: 3,
-                                          ),
-                                        ),
-                                        child: BillboardPicturePanel(
-                                          block: pic,
-                                        ),
-                                      ),
-                                    )
-                                  : BillboardPicturePanel(
-                                      block: pic,
-                                    ),
-                            ),
-                          // Menu coords stay in design space; bg fills the screen.
-                          FittedBox(
-                            fit: BoxFit.contain,
-                            alignment: Alignment.topCenter,
-                            child: SizedBox(
-                              width: designW,
-                              height: designH,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  if (editing)
-                                    Positioned.fill(
-                                      child: GestureDetector(
-                                        behavior: HitTestBehavior.translucent,
-                                        onTap: () => setState(
-                                          () => _selectedId = null,
-                                        ),
-                                      ),
-                                    ),
-                                  for (final section in sections)
-                                    _BoardBlock(
-                                      key: ValueKey(
-                                        'sec-${section.arrangement.id}',
-                                      ),
-                                      x: section.arrangement.xDistance
-                                          .toDouble(),
-                                      y: section.arrangement.yDistance
-                                          .toDouble(),
-                                      width: section.arrangement.maxWidth
-                                          .toDouble()
-                                          .clamp(
-                                            120,
-                                            _maxBlockWidth.toDouble(),
-                                          ),
-                                      editing: editing,
-                                      selected: _selectedId ==
-                                          section.arrangement.id,
-                                      resizable: true,
-                                      contentRevision:
-                                          '${section.arrangement.classFontSize}-'
-                                          '${section.arrangement.itemFontSize}-'
-                                          '${section.arrangement.maxWidth}-'
-                                          '${section.arrangement.classBackColor}-'
-                                          '${section.arrangement.itemBackColor}-'
-                                          '${section.arrangement.classForeColor}-'
-                                          '${section.arrangement.itemForeColor}-'
-                                          '${section.arrangement.classBold}-'
-                                          '${section.arrangement.itemBold}-'
-                                          '${section.arrangement.classUpperCase}-'
-                                          '${section.arrangement.itemUpperCase}-'
-                                          '${section.arrangement.modifierColor}-'
-                                          '${section.arrangement.modifierFontSize}-'
-                                          '${section.arrangement.classFontName}-'
-                                          '${section.arrangement.itemFontName}-'
-                                          '${section.arrangement.modifierFontName}-'
-                                          '${section.arrangement.contentType.dbValue}-'
-                                          '${section.arrangement.borderTopWidth}-'
-                                          '${section.arrangement.borderTopColor}-'
-                                          '${section.items.length}',
-                                      onSelect: () => _selectBlock(
-                                        section.arrangement.id,
-                                      ),
-                                      onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width, height) {
-                                        c.commitArrangementGeometry(
-                                          arrangementId:
-                                              section.arrangement.id,
-                                          xDistance: x,
-                                          yDistance: y,
-                                          maxWidth: width.round(),
-                                          maxX: _maxPos,
-                                          maxY: _maxPos,
-                                        );
-                                      },
-                                      child: MenuSectionPanel(
-                                        section: section,
-                                      ),
-                                    ),
-                                  for (final pic in fgPictures)
-                                    _BoardBlock(
-                                      key: ValueKey(
-                                        'pic-${pic.arrangement.id}',
-                                      ),
-                                      x: pic.x.toDouble(),
-                                      y: pic.y.toDouble(),
-                                      width: pic.arrangement.maxWidth
-                                          .toDouble()
-                                          .clamp(
-                                            40,
-                                            _maxBlockWidth.toDouble(),
-                                          ),
-                                      height:
-                                          pic.arrangement.pictureDisplayHeight,
-                                      editing: editing,
-                                      selected: _selectedId ==
-                                          pic.arrangement.id,
-                                      resizable: true,
-                                      minWidth: 80,
-                                      lockAspectHeight: true,
-                                      contentRevision:
-                                          '${pic.arrangement.maxWidth}-'
-                                          '${pic.bytes?.length ?? 0}-'
-                                          '${pic.route}-'
-                                          '${pic.arrangement.mediaFit.dbValue}-'
-                                          '${pic.arrangement.mediaOpacity}-'
-                                          '${pic.arrangement.borderTopWidth}-'
-                                          '${pic.arrangement.borderTopColor}-'
-                                          '${pic.arrangement.mediaType.dbValue}',
-                                      onSelect: () => _selectBlock(
-                                        pic.arrangement.id,
-                                      ),
-                                      onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width, height) {
-                                        c.commitArrangementGeometry(
-                                          arrangementId:
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onDoubleTap: editing
+                        ? null
+                        : () =>
+                            setState(() => _chromeHidden = !_chromeHidden),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return InteractiveViewer(
+                          // Pan/zoom fights with drag-to-move while editing.
+                          panEnabled: !editing,
+                          scaleEnabled: !editing,
+                          minScale: 0.4,
+                          maxScale: 3,
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                // One full-viewport fill — avoids "two backgrounds"
+                                // (letterbox bars vs design canvas).
+                                ColoredBox(color: bg),
+                                for (final pic in activeBgPictures)
+                                  Positioned.fill(
+                                    key: ValueKey('bg-${pic.arrangement.id}'),
+                                    child: editing
+                                        ? GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: () => _selectBlock(
                                               pic.arrangement.id,
-                                          xDistance: x,
-                                          yDistance: y,
-                                          maxWidth: width.round(),
-                                          minWidth: 80,
-                                          maxX: _maxPos,
-                                          maxY: _maxPos,
-                                        );
-                                      },
-                                      child: BillboardPicturePanel(
-                                        block: pic,
-                                      ),
+                                            ),
+                                            child: DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                border: Border.all(
+                                                  color: _selectedId ==
+                                                          pic.arrangement.id
+                                                      ? CamaleonColors.green
+                                                      : Colors.transparent,
+                                                  width: 3,
+                                                ),
+                                              ),
+                                              child: BillboardPicturePanel(
+                                                block: pic,
+                                              ),
+                                            ),
+                                          )
+                                        : BillboardPicturePanel(
+                                            block: pic,
+                                          ),
+                                  ),
+                                // Menu coords stay in design space; bg fills the screen.
+                                FittedBox(
+                                  fit: BoxFit.contain,
+                                  alignment: Alignment.topCenter,
+                                  child: SizedBox(
+                                    width: designW,
+                                    height: designH,
+                                    child: Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        if (editing)
+                                          Positioned.fill(
+                                            child: GestureDetector(
+                                              behavior:
+                                                  HitTestBehavior.translucent,
+                                              onTap: () => setState(
+                                                () => _selectedId = null,
+                                              ),
+                                            ),
+                                          ),
+                                        for (final section in sections)
+                                          _BoardBlock(
+                                            key: ValueKey(
+                                              'sec-${section.arrangement.id}',
+                                            ),
+                                            x: section.arrangement.xDistance
+                                                .toDouble(),
+                                            y: section.arrangement.yDistance
+                                                .toDouble(),
+                                            width: section.arrangement.maxWidth
+                                                .toDouble()
+                                                .clamp(
+                                                  120,
+                                                  _maxBlockWidth.toDouble(),
+                                                ),
+                                            editing: editing,
+                                            selected: _selectedId ==
+                                                section.arrangement.id,
+                                            resizable: true,
+                                            contentRevision:
+                                                '${section.arrangement.classFontSize}-'
+                                                '${section.arrangement.itemFontSize}-'
+                                                '${section.arrangement.maxWidth}-'
+                                                '${section.arrangement.classBackColor}-'
+                                                '${section.arrangement.itemBackColor}-'
+                                                '${section.arrangement.classForeColor}-'
+                                                '${section.arrangement.itemForeColor}-'
+                                                '${section.arrangement.classBold}-'
+                                                '${section.arrangement.itemBold}-'
+                                                '${section.arrangement.classUpperCase}-'
+                                                '${section.arrangement.itemUpperCase}-'
+                                                '${section.arrangement.modifierColor}-'
+                                                '${section.arrangement.modifierFontSize}-'
+                                                '${section.arrangement.classFontName}-'
+                                                '${section.arrangement.itemFontName}-'
+                                                '${section.arrangement.modifierFontName}-'
+                                                '${section.arrangement.contentType.dbValue}-'
+                                                '${section.arrangement.borderTopWidth}-'
+                                                '${section.arrangement.borderTopColor}-'
+                                                '${section.items.length}',
+                                            onSelect: () => _selectBlock(
+                                              section.arrangement.id,
+                                            ),
+                                            onDragStarted: c.markLayoutDirty,
+                                            onCommit: (x, y, width, height) {
+                                              c.commitArrangementGeometry(
+                                                arrangementId:
+                                                    section.arrangement.id,
+                                                xDistance: x,
+                                                yDistance: y,
+                                                maxWidth: width.round(),
+                                                maxX: _maxPos,
+                                                maxY: _maxPos,
+                                              );
+                                            },
+                                            child: MenuSectionPanel(
+                                              section: section,
+                                            ),
+                                          ),
+                                        for (final pic in fgPictures)
+                                          _BoardBlock(
+                                            key: ValueKey(
+                                              'pic-${pic.arrangement.id}',
+                                            ),
+                                            x: pic.x.toDouble(),
+                                            y: pic.y.toDouble(),
+                                            width: pic.arrangement.maxWidth
+                                                .toDouble()
+                                                .clamp(
+                                                  40,
+                                                  _maxBlockWidth.toDouble(),
+                                                ),
+                                            height: pic.arrangement
+                                                .pictureDisplayHeight,
+                                            editing: editing,
+                                            selected: _selectedId ==
+                                                pic.arrangement.id,
+                                            resizable: true,
+                                            minWidth: 80,
+                                            lockAspectHeight: true,
+                                            contentRevision:
+                                                '${pic.arrangement.maxWidth}-'
+                                                '${pic.bytes?.length ?? 0}-'
+                                                '${pic.route}-'
+                                                '${pic.arrangement.mediaFit.dbValue}-'
+                                                '${pic.arrangement.mediaOpacity}-'
+                                                '${pic.arrangement.borderTopWidth}-'
+                                                '${pic.arrangement.borderTopColor}-'
+                                                '${pic.arrangement.mediaType.dbValue}',
+                                            onSelect: () => _selectBlock(
+                                              pic.arrangement.id,
+                                            ),
+                                            onDragStarted: c.markLayoutDirty,
+                                            onCommit: (x, y, width, height) {
+                                              c.commitArrangementGeometry(
+                                                arrangementId:
+                                                    pic.arrangement.id,
+                                                xDistance: x,
+                                                yDistance: y,
+                                                maxWidth: width.round(),
+                                                minWidth: 80,
+                                                maxX: _maxPos,
+                                                maxY: _maxPos,
+                                              );
+                                            },
+                                            child: BillboardPicturePanel(
+                                              block: pic,
+                                            ),
+                                          ),
+                                        if (board.sections.isEmpty &&
+                                            board.pictures.isEmpty)
+                                          const Center(
+                                            child: Text(
+                                              'No bb_arrangement rows for this computer name.\n'
+                                              'Configure screens in Camaleon POS → Billboard.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: Colors.white70,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
-                                  if (board.sections.isEmpty &&
-                                      board.pictures.isEmpty)
-                                    const Center(
-                                      child: Text(
-                                        'No bb_arrangement rows for this computer name.\n'
-                                        'Configure screens in Camaleon POS → Billboard.',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+                  ),
+                ),
+                if (c.customerDisplay) ...[
+                  Container(
+                    width: 1,
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
+                  CustomerOrderBoardPanel(
+                    width: orderColW,
+                    orders: c.openOrders,
+                  ),
+                ],
+              ],
             ),
           ),
           if (board.hasMultipleBoardBackgrounds)
@@ -428,7 +452,20 @@ class _BoardPageState extends State<BoardPage> {
               onPickBackgroundImage: _pickBoardBackgroundImage,
               onPickBackgroundVideo: _pickBoardBackgroundVideo,
               onClearBackgroundImage: _clearBoardBackgroundImage,
-              onBrowseMediaFile: _browseSelectedMediaFile,
+              onPickBlockImage: () => _browseSelectedMediaFile(
+                ArrangementMediaType.image,
+              ),
+              onPickBlockVideo: () => _browseSelectedMediaFile(
+                ArrangementMediaType.video,
+              ),
+              onClearBlockMedia: _clearSelectedBlockMedia,
+              onAddMenuSection: _addMenuSection,
+              onAddPhotoBlock: _addPhotoBlock,
+              onDeleteBlock: _deleteSelectedBlock,
+              creatingBlock: c.creatingBlock,
+              customerDisplay: c.customerDisplay,
+              openOrders: c.openOrders,
+              onCustomerDisplayChanged: c.setCustomerDisplay,
               onStylePatch: ({
                 int? classFontDelta,
                 int? itemFontDelta,
@@ -456,6 +493,8 @@ class _BoardPageState extends State<BoardPage> {
                 double? mediaOpacity,
                 int? displayOrder,
                 int? displaySeconds,
+                int? rangeOffset,
+                int? rangeCount,
                 int? borderWidth,
                 String? borderColor,
                 bool? videoLoop,
@@ -496,6 +535,8 @@ class _BoardPageState extends State<BoardPage> {
                   mediaOpacity: mediaOpacity,
                   displayOrder: displayOrder,
                   displaySeconds: displaySeconds,
+                  rangeOffset: rangeOffset,
+                  rangeCount: rangeCount,
                   borderWidth: borderWidth,
                   borderColor: borderColor,
                   videoLoop: videoLoop,
@@ -607,6 +648,162 @@ class _BoardPageState extends State<BoardPage> {
       _selectedId = null;
     });
     c.beginLayoutEdit();
+  }
+
+  Future<void> _addMenuSection() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final classes = await c.listMenuClasses();
+    if (!mounted) return;
+    if (classes.isEmpty) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'No menu classes found in POS'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+
+    final picked = await showDialog<MenuClassOption>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF121824),
+          title: const Text(
+            'Add menu section',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 360,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: classes.length,
+              itemBuilder: (_, i) {
+                final opt = classes[i];
+                return ListTile(
+                  title: Text(
+                    opt.name.isEmpty ? 'Class #${opt.classId}' : opt.name,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () => Navigator.of(ctx).pop(opt),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+
+    final id = await c.addMenuBlock(
+      classId: picked.classId,
+      className: picked.name,
+    );
+    if (!mounted) return;
+    if (id == null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not add menu section'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+    setState(() => _selectedId = id);
+  }
+
+  Future<void> _addPhotoBlock() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final id = await c.addPhotoBlock();
+    if (!mounted) return;
+    if (id == null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not add photo block'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+    setState(() => _selectedId = id);
+  }
+
+  Future<void> _deleteSelectedBlock() async {
+    final id = _selectedId;
+    if (id == null) return;
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF121824),
+          title: const Text(
+            'Delete block?',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            'Remove block #$id from bb_arrangement?\n'
+            'This cannot be undone from the app.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ok = await c.deleteArrangement(id);
+    if (!mounted) return;
+    messenger.hideCurrentSnackBar();
+    if (!ok) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not delete block #$id'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+    setState(() => _selectedId = null);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Deleted block #$id'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Future<String?> _localPathForPicked(PlatformFile file) async {
@@ -728,11 +925,12 @@ class _BoardPageState extends State<BoardPage> {
     );
   }
 
-  Future<void> _browseSelectedMediaFile() async {
+  Future<void> _browseSelectedMediaFile(ArrangementMediaType mediaType) async {
     final c = context.read<BillboardController>();
     final messenger = ScaffoldMessenger.of(context);
     final id = _selectedId;
     if (id == null) return;
+    if (mediaType == ArrangementMediaType.none) return;
 
     PictureBlock? pic;
     for (final p in c.board?.pictures ?? const <PictureBlock>[]) {
@@ -742,11 +940,6 @@ class _BoardPageState extends State<BoardPage> {
       }
     }
     if (pic == null) return;
-
-    var mediaType = pic.arrangement.mediaType;
-    if (mediaType == ArrangementMediaType.none) {
-      mediaType = ArrangementMediaType.image;
-    }
 
     try {
       final files = await FilePicker.pickFiles(
@@ -775,7 +968,9 @@ class _BoardPageState extends State<BoardPage> {
       final ok = await c.applyPickedMedia(
         arrangementId: id,
         mediaType: mediaType,
-        mediaFile: name,
+        mediaFile: mediaType == ArrangementMediaType.video
+            ? (path.isNotEmpty ? path : name)
+            : name,
         pictureRoute: path.isNotEmpty ? path : name,
         pictureBytes: bytes,
       );
@@ -801,6 +996,24 @@ class _BoardPageState extends State<BoardPage> {
       );
     }
   }
+
+  Future<void> _clearSelectedBlockMedia() async {
+    final id = _selectedId;
+    if (id == null) return;
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await c.clearBlockMedia(id);
+    if (!mounted) return;
+    if (ok) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(c.errorMessage ?? 'Could not clear media'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
+  }
 }
 
 class _EditChrome extends StatelessWidget {
@@ -810,6 +1023,7 @@ class _EditChrome extends StatelessWidget {
     required this.saving,
     required this.dirty,
     required this.uploadingBackground,
+    required this.creatingBlock,
     required this.sidePanel,
     required this.dockTop,
     required this.sideWidth,
@@ -819,8 +1033,16 @@ class _EditChrome extends StatelessWidget {
     required this.onPickBackgroundImage,
     required this.onPickBackgroundVideo,
     required this.onClearBackgroundImage,
-    required this.onBrowseMediaFile,
+    required this.onPickBlockImage,
+    required this.onPickBlockVideo,
+    required this.onClearBlockMedia,
+    required this.onAddMenuSection,
+    required this.onAddPhotoBlock,
+    required this.onDeleteBlock,
     required this.onStylePatch,
+    required this.customerDisplay,
+    required this.openOrders,
+    required this.onCustomerDisplayChanged,
   });
 
   final int? selectedId;
@@ -828,6 +1050,9 @@ class _EditChrome extends StatelessWidget {
   final bool saving;
   final bool dirty;
   final bool uploadingBackground;
+  final bool creatingBlock;
+  final bool customerDisplay;
+  final List<CustomerOrderTicket> openOrders;
   final bool sidePanel;
   final bool dockTop;
   final double sideWidth;
@@ -837,8 +1062,14 @@ class _EditChrome extends StatelessWidget {
   final VoidCallback onPickBackgroundImage;
   final VoidCallback onPickBackgroundVideo;
   final VoidCallback onClearBackgroundImage;
-  final VoidCallback onBrowseMediaFile;
+  final VoidCallback onPickBlockImage;
+  final VoidCallback onPickBlockVideo;
+  final VoidCallback onClearBlockMedia;
+  final VoidCallback onAddMenuSection;
+  final VoidCallback onAddPhotoBlock;
+  final VoidCallback onDeleteBlock;
   final StylePatch onStylePatch;
+  final ValueChanged<bool> onCustomerDisplayChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -890,7 +1121,16 @@ class _EditChrome extends StatelessWidget {
       onPickBackgroundImage: onPickBackgroundImage,
       onPickBackgroundVideo: onPickBackgroundVideo,
       onClearBackgroundImage: onClearBackgroundImage,
-      onBrowseMediaFile: onBrowseMediaFile,
+      onPickBlockImage: onPickBlockImage,
+      onPickBlockVideo: onPickBlockVideo,
+      onClearBlockMedia: onClearBlockMedia,
+      onAddMenuSection: onAddMenuSection,
+      onAddPhotoBlock: onAddPhotoBlock,
+      onDeleteBlock: onDeleteBlock,
+      creatingBlock: creatingBlock,
+      customerDisplay: customerDisplay,
+      openOrders: openOrders,
+      onCustomerDisplayChanged: onCustomerDisplayChanged,
       onPatch: onStylePatch,
     );
 
@@ -908,7 +1148,9 @@ class _EditChrome extends StatelessWidget {
                 dirty: dirty,
                 saving: saving,
                 hint: !hasSelection
-                    ? 'Tap a section or photo to style it'
+                    ? (dirty
+                        ? 'Unsaved changes · Save to keep them'
+                        : 'Create or tap a block · Close when finished')
                     : (sidePanel
                         ? 'Edit size & colors on the right'
                         : (dockTop
@@ -951,7 +1193,7 @@ class _EditChrome extends StatelessWidget {
                           Text(
                             hasSelection
                                 ? 'Changes apply live · Save when done'
-                                : 'Board color always · pick a block for more',
+                                : 'Create content · then tune the board',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.45),
                               fontSize: 12,
@@ -986,7 +1228,7 @@ class _EditChrome extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxHeight: hasSelection ? 340 : 140,
+                    maxHeight: hasSelection ? 340 : 360,
                   ),
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1047,12 +1289,15 @@ class _TopEditBar extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      const Text(
-                        'Edit mode',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
+                      const Flexible(
+                        child: Text(
+                          'Edit mode',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
                         ),
                       ),
                       if (dirty) ...[
@@ -1081,29 +1326,41 @@ class _TopEditBar extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     hint,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            TextButton(
-              onPressed: saving ? null : onCancel,
-              child: const Text('Discard'),
-            ),
-            const SizedBox(width: 4),
-            FilledButton.icon(
-              onPressed: saving || !dirty ? null : onSave,
-              icon: saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.check_rounded, size: 18),
-              label: Text(saving ? 'Saving…' : 'Save'),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: saving ? null : onCancel,
+                    child: Text(dirty ? 'Discard' : 'Close'),
+                  ),
+                  if (dirty) ...[
+                    const SizedBox(width: 4),
+                    FilledButton.icon(
+                      onPressed: saving ? null : onSave,
+                      icon: saving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_rounded, size: 18),
+                      label: Text(saving ? 'Saving…' : 'Save'),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),

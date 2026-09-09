@@ -10,6 +10,9 @@ abstract class ConnectionConfigRepository {
   Future<int> loadRefreshSeconds();
   Future<void> saveRefreshSeconds(int seconds);
 
+  Future<bool> loadCustomerDisplay();
+  Future<void> saveCustomerDisplay(bool value);
+
   /// Best-effort import of POS connection from a shared Camaleon file / QR.
   Future<DbConnectionConfig?> tryImportSharedConnection();
 }

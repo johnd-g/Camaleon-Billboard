@@ -91,4 +91,52 @@ abstract class BillboardRepository {
     String pictureRoute = '',
     List<int>? pictureBytes,
   });
+
+  /// POS `it_titemclass` rows for picking a new menu section.
+  Future<List<MenuClassOption>> listMenuClasses();
+
+  /// Inserts a new menu block (`usepic=0`) and returns its `ID`.
+  Future<int> insertMenuArrangement({
+    required String compName,
+    required int classId,
+    required String screenName,
+    int xDistance = 40,
+    int yDistance = 40,
+    int maxWidth = 600,
+    int mainBackColor = 0,
+    int displayOrder = 0,
+  });
+
+  /// Inserts a new photo/media block (`usepic=1`) and returns its `ID`.
+  Future<int> insertPhotoArrangement({
+    required String compName,
+    String screenName = 'Photo',
+    int xDistance = 40,
+    int yDistance = 40,
+    int maxWidth = 400,
+    int mainBackColor = 0,
+    int displayOrder = 0,
+  });
+
+  /// Deletes one `bb_arrangement` row for this device.
+  /// Returns affected row count.
+  Future<int> deleteArrangement({
+    required int id,
+    required String compName,
+  });
+
+  /// Force-delete by primary key only (ignores comp_name).
+  Future<int> deleteArrangementById(int id);
+
+  /// Loads one arrangement row by primary key (any `usepic`).
+  Future<ArrangementBlock?> loadArrangementById({
+    required int id,
+    required String compName,
+  });
+
+  /// Runs [action] in a MySQL transaction (COMMIT / ROLLBACK).
+  Future<T> runInTransaction<T>(Future<T> Function() action);
+
+  /// Open tickets from POS (`it_tcuenta` + `it_torder`) for Customer display.
+  Future<List<CustomerOrderTicket>> loadOpenCustomerOrders({int limit = 10});
 }

@@ -40,6 +40,23 @@ class MysqlClient {
     return conn.query(sql, values);
   }
 
+  /// Runs [action] inside a single MySQL transaction on this connection.
+  ///
+  /// On success: COMMIT. On any error: ROLLBACK then rethrows.
+  Future<T> transaction<T>(Future<T> Function() action) async {
+    await query('START TRANSACTION');
+    try {
+      final result = await action();
+      await query('COMMIT');
+      return result;
+    } catch (e) {
+      try {
+        await query('ROLLBACK');
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
   Future<bool> test(DbConnectionConfig config) async {
     MySqlConnection? probe;
     try {

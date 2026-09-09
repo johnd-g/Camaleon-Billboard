@@ -62,13 +62,9 @@ class BillboardRepositoryImpl implements BillboardRepository {
     final list = <ArrangementBlock>[];
     for (final row in rows) {
       final block = _mapArrangement(Map<String, dynamic>.from(row.fields));
-      if (block.classId == 0 &&
-          !block.hasPicture &&
-          !block.usePicture &&
-          block.contentType != ArrangementContentType.offer) {
-        continue;
-      }
-      if (usePicture && !block.hasPicture) continue;
+      // Drop junk menu rows with no class (unless it's an OFFER).
+      // Keep empty photo/media placeholders (usepic=1) so newly added
+      // blocks appear before the user picks an image/video.
       if (!usePicture &&
           block.classId == 0 &&
           block.contentType != ArrangementContentType.offer) {
@@ -567,6 +563,7 @@ UPDATE $_table SET
   video_muted = ?,
   display_order = ?,
   display_seconds = ?,
+  range_items = ?,
   border_top_width = ?,
   border_top_color = ?,
   border_right_width = ?,
@@ -608,7 +605,8 @@ WHERE ID = ? AND comp_name = ?
         a.videoLoop ? 1 : 0,
         a.videoMuted ? 1 : 0,
         a.displayOrder.clamp(0, 100000),
-        a.displaySeconds.clamp(1, 3600),
+        a.displaySeconds.clamp(0, 3600),
+        a.rangeItems,
         a.borderTopWidth.clamp(0, 200),
         a.borderTopColor,
         a.borderRightWidth.clamp(0, 200),
@@ -826,4 +824,365 @@ INSERT INTO $_table (
       [mediaType.dbValue, mediaFile, pictureRoute, id, name],
     );
   }
+
+  @override
+  Future<List<MenuClassOption>> listMenuClasses() async {
+    final rows = await _client.query(
+      'SELECT Class_ID, Class_Name FROM it_titemclass '
+      'ORDER BY Class_Name',
+    );
+    return [
+      for (final row in rows)
+        MenuClassOption(
+          classId: Utils.asInt(row['Class_ID']),
+          name: Utils.str(row['Class_Name']),
+        ),
+    ];
+  }
+
+  @override
+  Future<int> insertMenuArrangement({
+    required String compName,
+    required int classId,
+    required String screenName,
+    int xDistance = 40,
+    int yDistance = 40,
+    int maxWidth = 600,
+    int mainBackColor = 0,
+    int displayOrder = 0,
+  }) async {
+    final name = compName.trim();
+    if (name.isEmpty) {
+      throw StateError('Computer name is required to add a menu block');
+    }
+    final title = screenName.trim().isEmpty ? 'Screen' : screenName.trim();
+
+    try {
+      final result = await _client.query(
+        '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor,
+  detaildesc, bbpic_route, range_items, usepic, bb_background,
+  content_type, offer_id, media_type, media_file, media_fit, media_opacity,
+  video_loop, video_muted, display_order, display_seconds
+) VALUES (
+  ?, ?, ?, ?, ?, ?,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '15', '0', ?,
+  10, '', '7',
+  '', '', '', 0, 0,
+  'MENU', 0, 'NONE', '', 'COVER', 1.000,
+  1, 1, ?, 0
+)
+''',
+        [
+          name,
+          title,
+          classId,
+          xDistance,
+          yDistance,
+          maxWidth,
+          '$mainBackColor',
+          displayOrder,
+        ],
+      );
+      return await _resolveInsertId(result, compName: name);
+    } catch (_) {
+      // Older schemas without media/display columns.
+      final result = await _client.query(
+        '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor, detaildesc, bbpic_route, range_items, usepic
+) VALUES (
+  ?, ?, ?, ?, ?, ?,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '15', '0', ?,
+  10, '', '7', '', '', '', 0
+)
+''',
+        [
+          name,
+          title,
+          classId,
+          xDistance,
+          yDistance,
+          maxWidth,
+          '$mainBackColor',
+        ],
+      );
+      return await _resolveInsertId(result, compName: name);
+    }
+  }
+
+  @override
+  Future<int> insertPhotoArrangement({
+    required String compName,
+    String screenName = 'Photo',
+    int xDistance = 40,
+    int yDistance = 40,
+    int maxWidth = 400,
+    int mainBackColor = 0,
+    int displayOrder = 0,
+  }) async {
+    final name = compName.trim();
+    if (name.isEmpty) {
+      throw StateError('Computer name is required to add a photo block');
+    }
+    final title = screenName.trim().isEmpty ? 'Photo' : screenName.trim();
+
+    try {
+      final result = await _client.query(
+        '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor,
+  detaildesc, bbpic_route, range_items, usepic, bb_background,
+  content_type, offer_id, media_type, media_file, media_fit, media_opacity,
+  video_loop, video_muted, display_order, display_seconds
+) VALUES (
+  ?, ?, 0, ?, ?, ?,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '0', '15', ?,
+  10, '', '0',
+  '', '', '', 1, 0,
+  'MENU', 0, 'NONE', '', 'COVER', 1.000,
+  1, 1, ?, 0
+)
+''',
+        [
+          name,
+          title,
+          xDistance,
+          yDistance,
+          maxWidth,
+          '$mainBackColor',
+          displayOrder,
+        ],
+      );
+      return await _resolveInsertId(result, compName: name);
+    } catch (_) {
+      final result = await _client.query(
+        '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor, detaildesc, bbpic_route, range_items, usepic
+) VALUES (
+  ?, ?, 0, ?, ?, ?,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '0', '15', ?,
+  10, '', '0', '', '', '', 1
+)
+''',
+        [
+          name,
+          title,
+          xDistance,
+          yDistance,
+          maxWidth,
+          '$mainBackColor',
+        ],
+      );
+      return await _resolveInsertId(result, compName: name);
+    }
+  }
+
+  Future<int> _resolveInsertId(Results result, {required String compName}) async {
+    final id = result.insertId;
+    if (id != null && id > 0) return id;
+    final rows = await _client.query(
+      'SELECT ID FROM $_table WHERE comp_name = ? ORDER BY ID DESC LIMIT 1',
+      [compName],
+    );
+    if (rows.isEmpty) {
+      throw StateError('Insert succeeded but no arrangement ID was returned');
+    }
+    return Utils.asInt(rows.first['ID']);
+  }
+
+  @override
+  Future<int> deleteArrangement({
+    required int id,
+    required String compName,
+  }) async {
+    if (id <= 0) return 0;
+    final name = compName.trim();
+    final Results result;
+    if (name.isEmpty) {
+      result = await _client.query(
+        'DELETE FROM $_table WHERE ID = ?',
+        [id],
+      );
+    } else {
+      result = await _client.query(
+        'DELETE FROM $_table WHERE ID = ? AND comp_name = ?',
+        [id, name],
+      );
+      // Mismatched device label — still remove the row by ID.
+      if ((result.affectedRows ?? 0) <= 0) {
+        return deleteArrangementById(id);
+      }
+    }
+    return result.affectedRows ?? 0;
+  }
+
+  @override
+  Future<int> deleteArrangementById(int id) async {
+    if (id <= 0) return 0;
+    final result = await _client.query(
+      'DELETE FROM $_table WHERE ID = ?',
+      [id],
+    );
+    return result.affectedRows ?? 0;
+  }
+
+  @override
+  Future<ArrangementBlock?> loadArrangementById({
+    required int id,
+    required String compName,
+  }) async {
+    if (id <= 0) return null;
+    final name = compName.trim();
+    Results rows;
+    if (name.isEmpty) {
+      rows = await _client.query(
+        'SELECT * FROM $_table WHERE ID = ? LIMIT 1',
+        [id],
+      );
+    } else {
+      rows = await _client.query(
+        'SELECT * FROM $_table WHERE ID = ? AND comp_name = ? LIMIT 1',
+        [id, name],
+      );
+      if (rows.isEmpty) {
+        rows = await _client.query(
+          'SELECT * FROM $_table WHERE ID = ? LIMIT 1',
+          [id],
+        );
+      }
+    }
+    if (rows.isEmpty) return null;
+    return _mapArrangement(Map<String, dynamic>.from(rows.first.fields));
+  }
+
+  @override
+  Future<T> runInTransaction<T>(Future<T> Function() action) {
+    return _client.transaction(action);
+  }
+
+  @override
+  Future<List<CustomerOrderTicket>> loadOpenCustomerOrders({
+    int limit = 10,
+  }) async {
+    final cap = limit.clamp(1, 40);
+    try {
+      final rows = await _client.query(
+        '''
+SELECT
+  c.Cuenta_ID,
+  c.Cuenta_Name,
+  c.Cuenta_Table_Name,
+  o.Order_ID,
+  o.Order_Item_Q,
+  o.ITEM_Sale_Price,
+  COALESCE(
+    NULLIF(TRIM(i.ITEM_Screen_Name), ''),
+    NULLIF(TRIM(i.ITEM_Description), ''),
+    CONCAT('Item ', o.Order_Item_ID)
+  ) AS item_name
+FROM it_tcuenta c
+INNER JOIN it_torder o ON o.Order_Cuenta_ID = c.Cuenta_ID
+LEFT JOIN it_titem i ON i.ITEM_ID = o.Order_Item_ID
+WHERE (c.Cuenta_Close = 0 OR c.Cuenta_Close = '0')
+  AND (o.Item_Closed = 0 OR o.Item_Closed = '0')
+ORDER BY c.Cuenta_ID DESC, o.Order_ID ASC
+LIMIT 400
+''',
+      );
+
+      final byCuenta = <int, _OpenTicketAcc>{};
+      for (final row in rows) {
+        final cuentaId = Utils.asInt(row['Cuenta_ID']);
+        if (cuentaId <= 0) continue;
+        final acc = byCuenta.putIfAbsent(
+          cuentaId,
+          () => _OpenTicketAcc(
+            cuentaId: cuentaId,
+            name: Utils.str(row['Cuenta_Name']),
+            tableName: Utils.str(row['Cuenta_Table_Name']),
+          ),
+        );
+        final qty = Utils.asDouble(row['Order_Item_Q'], 1);
+        final price = Utils.asDouble(row['ITEM_Sale_Price']);
+        final itemName = Utils.str(row['item_name']);
+        if (itemName.isEmpty) continue;
+        acc.lines.add(
+          CustomerOrderLine(
+            qty: qty <= 0 ? 1 : qty,
+            name: itemName,
+            unitPrice: price,
+          ),
+        );
+      }
+
+      final tickets = <CustomerOrderTicket>[];
+      for (final acc in byCuenta.values) {
+        if (acc.lines.isEmpty) continue;
+        final parts = <String>['#${acc.cuentaId}'];
+        if (acc.tableName.isNotEmpty) parts.add(acc.tableName);
+        if (acc.name.isNotEmpty &&
+            acc.name != acc.tableName &&
+            acc.name != '${acc.cuentaId}') {
+          parts.add(acc.name);
+        }
+        var total = 0.0;
+        for (final line in acc.lines) {
+          total += line.lineTotal;
+        }
+        tickets.add(
+          CustomerOrderTicket(
+            cuentaId: acc.cuentaId,
+            label: parts.join(' · '),
+            lines: List<CustomerOrderLine>.unmodifiable(acc.lines),
+            total: total,
+          ),
+        );
+        if (tickets.length >= cap) break;
+      }
+      return tickets;
+    } catch (e) {
+      // Tables may be missing on non-POS DBs — Customer display stays empty.
+      return const [];
+    }
+  }
+}
+
+class _OpenTicketAcc {
+  _OpenTicketAcc({
+    required this.cuentaId,
+    required this.name,
+    required this.tableName,
+  });
+
+  final int cuentaId;
+  final String name;
+  final String tableName;
+  final List<CustomerOrderLine> lines = [];
 }

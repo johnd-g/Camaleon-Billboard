@@ -149,6 +149,20 @@ class ArrangementBlock {
     return (offset, count);
   }
 
+  /// Offset used by the range UI (0 when unset / show all).
+  int get rangeOffset => rangeLimit.$1 ?? 0;
+
+  /// Item count used by the range UI (0 = no LIMIT = all items).
+  int get rangeCount => rangeLimit.$2 ?? 0;
+
+  /// Encodes Classic `range_items`. Empty string = show all items.
+  static String encodeRangeItems({required int offset, required int count}) {
+    final o = offset.clamp(0, 100000);
+    final c = count.clamp(0, 100000);
+    if (c <= 0) return '';
+    return '$o-$c';
+  }
+
   ArrangementBlock copyWith({
     int? id,
     String? compName,
