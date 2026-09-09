@@ -100,9 +100,6 @@ class BillboardController extends ChangeNotifier {
   String? _pendingBoardBgVideoFile;
   String? _pendingBoardBgVideoRoute;
 
-  /// Live open tickets for Customer display (from POS `it_tcuenta` / `it_torder`).
-  List<CustomerOrderTicket> openOrders = const [];
-
   Timer? _refreshTimer;
   bool _reloadInFlight = false;
   int _pollTick = 0;
@@ -184,9 +181,6 @@ class BillboardController extends ChangeNotifier {
     customerDisplay = enabled;
     markLayoutDirty();
     notifyListeners();
-    if (enabled) {
-      unawaited(_refreshOpenOrders().then((_) => notifyListeners()));
-    }
   }
 
   void _clearSessionPending() {
@@ -579,7 +573,6 @@ class BillboardController extends ChangeNotifier {
         compName: computerName,
         sortAlphabetical: sortAlphabetical,
       );
-      if (customerDisplay) await _refreshOpenOrders();
       phase = BillboardPhase.ready;
       isFirstLaunch = false;
       _scheduleRefresh();
@@ -615,22 +608,11 @@ class BillboardController extends ChangeNotifier {
       }
       if (layoutEditing || layoutDirty || savingLayout) return;
       board = next;
-      if (customerDisplay || full) {
-        await _refreshOpenOrders();
-      }
       notifyListeners();
     } catch (e) {
       if (kDebugMode) debugPrint('Silent reload failed: $e');
     } finally {
       _reloadInFlight = false;
-    }
-  }
-
-  Future<void> _refreshOpenOrders() async {
-    try {
-      openOrders = await _billboardRepo.loadOpenCustomerOrders();
-    } catch (e) {
-      if (kDebugMode) debugPrint('Open orders refresh failed: $e');
     }
   }
 

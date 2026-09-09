@@ -70,7 +70,6 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.creatingBlock = false,
     this.customerDisplay = false,
     this.onCustomerDisplayChanged,
-    this.openOrders = const [],
   });
 
   final int boardMainBackColor;
@@ -96,7 +95,6 @@ class ArrangementStyleEditor extends StatelessWidget {
   final bool creatingBlock;
   final bool customerDisplay;
   final ValueChanged<bool>? onCustomerDisplayChanged;
-  final List<CustomerOrderTicket> openOrders;
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +118,6 @@ class ArrangementStyleEditor extends StatelessWidget {
           _CustomerDisplayCard(
             enabled: customerDisplay,
             onChanged: onCustomerDisplayChanged,
-            orders: openOrders,
           ),
           const SizedBox(height: 12),
           _BoardSettingsCard(
@@ -509,12 +506,10 @@ class _CustomerDisplayCard extends StatelessWidget {
   const _CustomerDisplayCard({
     required this.enabled,
     this.onChanged,
-    this.orders = const [],
   });
 
   final bool enabled;
   final ValueChanged<bool>? onChanged;
-  final List<CustomerOrderTicket> orders;
 
   @override
   Widget build(BuildContext context) {
@@ -567,7 +562,7 @@ class _CustomerDisplayCard extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Show open POS tickets beside the menu',
+                            'Show orders the customer just entered',
                             style: TextStyle(
                               color: Colors.white54,
                               fontSize: 11,
@@ -596,7 +591,7 @@ class _CustomerDisplayCard extends StatelessWidget {
           if (enabled) ...[
             const SizedBox(height: 12),
             Text(
-              orders.isEmpty ? 'Live tickets' : 'Live tickets (${orders.length})',
+              'Example orders',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.55),
                 fontWeight: FontWeight.w700,
@@ -604,7 +599,7 @@ class _CustomerDisplayCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            CustomerOrderSidebarPreview(orders: orders),
+            const CustomerOrderSidebarPreview(),
           ],
         ],
       ),

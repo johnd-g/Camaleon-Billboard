@@ -372,10 +372,7 @@ class _BoardPageState extends State<BoardPage> {
                     width: 1,
                     color: Colors.white.withValues(alpha: 0.12),
                   ),
-                  CustomerOrderBoardPanel(
-                    width: orderColW,
-                    orders: c.openOrders,
-                  ),
+                  CustomerOrderBoardPanel(width: orderColW),
                 ],
               ],
             ),
@@ -464,7 +461,6 @@ class _BoardPageState extends State<BoardPage> {
               onDeleteBlock: _deleteSelectedBlock,
               creatingBlock: c.creatingBlock,
               customerDisplay: c.customerDisplay,
-              openOrders: c.openOrders,
               onCustomerDisplayChanged: c.setCustomerDisplay,
               onStylePatch: ({
                 int? classFontDelta,
@@ -1041,7 +1037,6 @@ class _EditChrome extends StatelessWidget {
     required this.onDeleteBlock,
     required this.onStylePatch,
     required this.customerDisplay,
-    required this.openOrders,
     required this.onCustomerDisplayChanged,
   });
 
@@ -1052,7 +1047,6 @@ class _EditChrome extends StatelessWidget {
   final bool uploadingBackground;
   final bool creatingBlock;
   final bool customerDisplay;
-  final List<CustomerOrderTicket> openOrders;
   final bool sidePanel;
   final bool dockTop;
   final double sideWidth;
@@ -1129,7 +1123,6 @@ class _EditChrome extends StatelessWidget {
       onDeleteBlock: onDeleteBlock,
       creatingBlock: creatingBlock,
       customerDisplay: customerDisplay,
-      openOrders: openOrders,
       onCustomerDisplayChanged: onCustomerDisplayChanged,
       onPatch: onStylePatch,
     );

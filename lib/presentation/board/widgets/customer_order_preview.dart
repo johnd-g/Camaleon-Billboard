@@ -13,36 +13,44 @@ String _fmtQty(double qty) {
   return qty.toStringAsFixed(2);
 }
 
+/// Placeholder tickets until live POS wiring is enabled again.
+const kSampleCustomerOrders = <CustomerOrderTicket>[
+  CustomerOrderTicket(
+    cuentaId: 1042,
+    label: 'Orden #1042',
+    total: 7.25,
+    lines: [
+      CustomerOrderLine(qty: 2, name: 'Taco Pastor', unitPrice: 1.5),
+      CustomerOrderLine(qty: 1, name: 'Taco Asada', unitPrice: 1.75),
+      CustomerOrderLine(qty: 1, name: 'Agua Fresca', unitPrice: 2.5),
+    ],
+  ),
+  CustomerOrderTicket(
+    cuentaId: 1043,
+    label: 'Orden #1043',
+    total: 11.24,
+    lines: [
+      CustomerOrderLine(qty: 1, name: 'Desayuno Chilaquiles', unitPrice: 8.99),
+      CustomerOrderLine(qty: 1, name: 'Café', unitPrice: 2.25),
+    ],
+  ),
+];
+
 /// Compact preview for the Style sidebar.
 class CustomerOrderSidebarPreview extends StatelessWidget {
-  const CustomerOrderSidebarPreview({
-    super.key,
-    this.orders = const [],
-  });
-
-  final List<CustomerOrderTicket> orders;
+  const CustomerOrderSidebarPreview({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (orders.isEmpty) {
-      return Text(
-        'No open tickets right now',
-        style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.45),
-          fontSize: 12,
-        ),
-      );
-    }
-    final shown = orders.take(3).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (var i = 0; i < shown.length; i++) ...[
+        for (var i = 0; i < kSampleCustomerOrders.length; i++) ...[
           if (i > 0) const SizedBox(height: 8),
           _OrderTicketCard(
-            ticket: shown[i].label,
-            lines: shown[i].lines,
-            total: shown[i].total,
+            ticket: kSampleCustomerOrders[i].label,
+            lines: kSampleCustomerOrders[i].lines,
+            total: kSampleCustomerOrders[i].total,
             compact: true,
           ),
         ],
@@ -56,11 +64,9 @@ class CustomerOrderBoardPanel extends StatelessWidget {
   const CustomerOrderBoardPanel({
     super.key,
     this.width = 320,
-    this.orders = const [],
   });
 
   final double width;
-  final List<CustomerOrderTicket> orders;
 
   @override
   Widget build(BuildContext context) {
@@ -86,34 +92,29 @@ class CustomerOrderBoardPanel extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: orders.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          'Waiting for open tickets…',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.45),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    )
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                      children: [
-                        for (var i = 0; i < orders.length; i++) ...[
-                          if (i > 0) const SizedBox(height: 10),
-                          _OrderTicketCard(
-                            ticket: orders[i].label,
-                            lines: orders[i].lines,
-                            total: orders[i].total,
-                            compact: false,
-                          ),
-                        ],
-                      ],
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                children: [
+                  for (var i = 0; i < kSampleCustomerOrders.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    _OrderTicketCard(
+                      ticket: kSampleCustomerOrders[i].label,
+                      lines: kSampleCustomerOrders[i].lines,
+                      total: kSampleCustomerOrders[i].total,
+                      compact: false,
                     ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    'Example · customer-entered orders',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
