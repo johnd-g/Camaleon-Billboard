@@ -139,13 +139,18 @@ class ArrangementBlock {
   double get pictureDisplayHeight =>
       maxWidth.toDouble().clamp(40, 20000) * 0.75;
 
-  /// Parses Classic `range_items` as `offset-count` for MySQL LIMIT.
+  /// Parses Classic `range_items` as `offset-count` (Skip / Count).
   (int? offset, int? count) get rangeLimit {
-    final dash = rangeItems.indexOf('-');
-    if (dash <= 0) return (null, null);
-    final offset = int.tryParse(rangeItems.substring(0, dash).trim());
-    final count = int.tryParse(rangeItems.substring(dash + 1).trim());
-    if (offset == null || count == null) return (null, null);
+    final raw = rangeItems.trim();
+    if (raw.isEmpty) return (null, null);
+    // Accept ASCII '-' or en/em dashes from Classic / copy-paste.
+    final match = RegExp(r'^(\d+)\s*[-–—]\s*(\d+)$').firstMatch(raw);
+    if (match == null) return (null, null);
+    final offset = int.tryParse(match.group(1)!);
+    final count = int.tryParse(match.group(2)!);
+    if (offset == null || count == null || offset < 0 || count <= 0) {
+      return (null, null);
+    }
     return (offset, count);
   }
 
@@ -161,6 +166,17 @@ class ArrangementBlock {
     final c = count.clamp(0, 100000);
     if (c <= 0) return '';
     return '$o-$c';
+  }
+
+  /// Applies Skip/Count to an already-ordered item list.
+  List<T> applyRange<T>(List<T> items) {
+    final (offset, count) = rangeLimit;
+    if (offset == null || count == null) return items;
+    if (items.isEmpty) return items;
+    final start = offset.clamp(0, items.length);
+    final end = (start + count).clamp(0, items.length);
+    if (start == 0 && end == items.length) return items;
+    return items.sublist(start, end);
   }
 
   ArrangementBlock copyWith({

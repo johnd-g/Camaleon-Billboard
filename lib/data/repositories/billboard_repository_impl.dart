@@ -145,10 +145,6 @@ class BillboardRepositoryImpl implements BillboardRepository {
         ? 'it_titem.ITEM_Description ASC'
         : 'it_titem.Prioridad DESC';
 
-    final (offset, count) = block.rangeLimit;
-    final limitSql =
-        (offset != null && count != null) ? ' LIMIT $offset, $count' : '';
-
     // Active happy-hour / date specials (same tables POS 2.0 uses).
     final specialIds = await _activeSpecialIds();
     final priceExpr = specialIds.isEmpty
@@ -167,6 +163,8 @@ class BillboardRepositoryImpl implements BillboardRepository {
   it_titem.ITEM_Sale_Price
 )''';
 
+    // Keep the full class list in memory; Skip/Count is applied at paint time
+    // so the editor can change the window without another DB round-trip.
     final sql = '''
 SELECT
   it_titemclass.Class_Name,
@@ -183,7 +181,7 @@ WHERE it_titem.ITEM_Sale_Price <> 0
   AND it_titem.ITEM_Show = 1
   AND it_titemclass.Class_ID = ?
 GROUP BY it_titem.ITEM_ID
-ORDER BY $orderBy$limitSql
+ORDER BY $orderBy
 ''';
 
     final rows = await _client.query(sql, [block.classId]);

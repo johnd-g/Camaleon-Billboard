@@ -1121,7 +1121,8 @@ class _ContentTypeCard extends StatelessWidget {
             Text(
               a.rangeCount <= 0
                   ? 'Show every item in this class'
-                  : 'Show ${a.rangeCount} items starting after ${a.rangeOffset}',
+                  : 'Show items ${a.rangeOffset + 1}–${a.rangeOffset + a.rangeCount} '
+                      '(skip ${a.rangeOffset}, take ${a.rangeCount})',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 11,

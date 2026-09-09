@@ -777,8 +777,6 @@ class BillboardController extends ChangeNotifier {
     final b = board;
     if (b == null || !layoutEditing) return;
 
-    var rangeChanged = false;
-
     ArrangementBlock patch(ArrangementBlock a) {
       var next = a;
       if (classFontDelta != null) {
@@ -897,7 +895,6 @@ class BillboardController extends ChangeNotifier {
         );
         if (encoded != next.rangeItems) {
           next = next.copyWith(rangeItems: encoded);
-          rangeChanged = true;
         }
       }
       if (borderWidth != null) {
@@ -960,48 +957,6 @@ class BillboardController extends ChangeNotifier {
     );
     layoutDirty = true;
     notifyListeners();
-    if (rangeChanged) {
-      unawaited(_refreshSectionItems(arrangementId));
-    }
-  }
-
-  Future<void> _refreshSectionItems(int arrangementId) async {
-    final b = board;
-    if (b == null || !layoutEditing) return;
-    MenuSection? target;
-    for (final s in b.sections) {
-      if (s.arrangement.id == arrangementId) {
-        target = s;
-        break;
-      }
-    }
-    if (target == null) return;
-
-    try {
-      final loaded = await _billboardRepo.fillClassView(
-        target.arrangement,
-        sortAlphabetical: sortAlphabetical,
-      );
-      final current = board;
-      if (current == null || !layoutEditing) return;
-      board = current.copyWith(
-        sections: [
-          for (final s in current.sections)
-            if (s.arrangement.id == arrangementId)
-              s.copyWith(
-                className: loaded.className,
-                items: loaded.items,
-              )
-            else
-              s,
-        ],
-      );
-      notifyListeners();
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('Refresh section items after range change failed: $e\n$st');
-      }
-    }
   }
 
   void setBoardBackgroundColor(int qbIndex) {

@@ -21,6 +21,9 @@ class MenuSectionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = section.arrangement;
+    // Skip/Count live on the arrangement — always slice at paint time so the
+    // editor preview updates even when the cached item list is still full.
+    final visible = a.applyRange(section.items);
     final border = a.decorationBorder;
     Widget body = ColoredBox(
       color: QbColors.of(a.itemBackColor),
@@ -36,7 +39,7 @@ class MenuSectionPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final item in section.items) ...[
+                for (final item in visible) ...[
                   _ItemRow(
                     arrangement: a,
                     name: item.name,

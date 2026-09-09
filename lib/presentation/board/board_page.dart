@@ -273,7 +273,8 @@ class _BoardPageState extends State<BoardPage> {
                                                 '${section.arrangement.contentType.dbValue}-'
                                                 '${section.arrangement.borderTopWidth}-'
                                                 '${section.arrangement.borderTopColor}-'
-                                                '${section.items.length}',
+                                                '${section.arrangement.rangeItems}-'
+                                                '${section.arrangement.applyRange(section.items).length}',
                                             onSelect: () => _selectBlock(
                                               section.arrangement.id,
                                             ),
@@ -605,9 +606,11 @@ class _BoardPageState extends State<BoardPage> {
   double _designHeight(BillboardBoard board) {
     var maxY = 720.0;
     for (final s in board.sections) {
+      final visibleCount =
+          s.arrangement.applyRange(s.items).length;
       final estimate = s.arrangement.yDistance +
           80 +
-          (s.items.length * (s.arrangement.itemFontSize + 10));
+          (visibleCount * (s.arrangement.itemFontSize + 10));
       maxY = math.max(maxY, estimate.toDouble());
     }
     for (final p in board.pictures) {
