@@ -1,3 +1,5 @@
+import 'package:mysql1/mysql1.dart';
+
 import 'package:camaleon_billboard/core/db/mysql_client.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/core/utils/type_data.dart';
@@ -36,27 +38,57 @@ class BillboardRepositoryImpl implements BillboardRepository {
     required String compName,
     required bool usePicture,
   }) async {
-    final rows = await _client.query(
-      'SELECT * FROM $_table '
-      'WHERE usepic = ? AND comp_name = ? '
-      'ORDER BY screen_name, ID',
-      [usePicture ? 1 : 0, compName],
-    );
+    final args = [usePicture ? 1 : 0, compName];
+    Results rows;
+    try {
+      rows = await _client.query(
+        'SELECT * FROM $_table '
+        'WHERE usepic = ? AND comp_name = ? '
+        'ORDER BY display_order ASC, screen_name ASC, ID ASC',
+        args,
+      );
+    } catch (e) {
+      // Older DBs without display_order — never ALTER; just fall back.
+      final msg = e.toString().toLowerCase();
+      if (!msg.contains('unknown column')) rethrow;
+      rows = await _client.query(
+        'SELECT * FROM $_table '
+        'WHERE usepic = ? AND comp_name = ? '
+        'ORDER BY screen_name ASC, ID ASC',
+        args,
+      );
+    }
 
     final list = <ArrangementBlock>[];
     for (final row in rows) {
       final block = _mapArrangement(Map<String, dynamic>.from(row.fields));
-      if (block.classId == 0 && !block.hasPicture && !block.usePicture) {
+      if (block.classId == 0 &&
+          !block.hasPicture &&
+          !block.usePicture &&
+          block.contentType != ArrangementContentType.offer) {
         continue;
       }
       if (usePicture && !block.hasPicture) continue;
-      if (!usePicture && block.classId == 0) continue;
+      if (!usePicture &&
+          block.classId == 0 &&
+          block.contentType != ArrangementContentType.offer) {
+        continue;
+      }
       list.add(block);
     }
     return list;
   }
 
   ArrangementBlock _mapArrangement(Map<String, dynamic> row) {
+    final mediaFile = Utils.str(row['media_file']);
+    final mediaType = ArrangementMediaType.parse(Utils.str(row['media_type']));
+    var pictureRoute = Utils.str(row['bbpic_route']);
+    if (pictureRoute.isEmpty &&
+        mediaType == ArrangementMediaType.image &&
+        mediaFile.isNotEmpty) {
+      pictureRoute = mediaFile;
+    }
+
     return ArrangementBlock(
       id: Utils.asInt(row['ID']),
       compName: Utils.str(row['comp_name']),
@@ -82,11 +114,29 @@ class BillboardRepositoryImpl implements BillboardRepository {
       modifierFontName: Utils.str(row['modfname']),
       modifierColor: Utils.asInt(row['modfcolor'], 0),
       detailDescription: Utils.str(row['detaildesc']),
-      pictureRoute: Utils.str(row['bbpic_route']),
+      pictureRoute: pictureRoute,
       pictureBytes: Utils.asBytes(row['bb_pic']),
       rangeItems: Utils.str(row['range_items']),
       usePicture: Utils.asFlag(row['usepic']),
       boardBackground: Utils.asFlag(row['bb_background']),
+      contentType: ArrangementContentType.parse(Utils.str(row['content_type'])),
+      offerId: Utils.asInt(row['offer_id']),
+      mediaType: mediaType,
+      mediaFile: mediaFile,
+      mediaFit: ArrangementMediaFit.parse(Utils.str(row['media_fit'])),
+      mediaOpacity: Utils.asDouble(row['media_opacity'], 1),
+      videoLoop: Utils.asInt(row['video_loop'], 1) != 0,
+      videoMuted: Utils.asInt(row['video_muted'], 1) != 0,
+      displayOrder: Utils.asInt(row['display_order']),
+      displaySeconds: Utils.asInt(row['display_seconds'], 8),
+      borderTopWidth: Utils.asInt(row['border_top_width']),
+      borderTopColor: Utils.str(row['border_top_color']),
+      borderRightWidth: Utils.asInt(row['border_right_width']),
+      borderRightColor: Utils.str(row['border_right_color']),
+      borderBottomWidth: Utils.asInt(row['border_bottom_width']),
+      borderBottomColor: Utils.str(row['border_bottom_color']),
+      borderLeftWidth: Utils.asInt(row['border_left_width']),
+      borderLeftColor: Utils.str(row['border_left_color']),
     );
   }
 
@@ -377,7 +427,13 @@ INSERT INTO $_table (
   classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
   modfsize, modfname, modfcolor,
   pricefname, pricefsize, pricefcolor,
-  detaildesc, bbpic_route, bb_pic, range_items, usepic, bb_background
+  detaildesc, bbpic_route, bb_pic, range_items, usepic, bb_background,
+  content_type, offer_id, media_type, media_file, media_fit, media_opacity,
+  video_loop, video_muted, display_order, display_seconds,
+  border_top_width, border_top_color,
+  border_right_width, border_right_color,
+  border_bottom_width, border_bottom_color,
+  border_left_width, border_left_color
 ) VALUES (
   ?, ?, ?, ?, ?, ?,
   ?, ?, ?, ?,
@@ -385,7 +441,13 @@ INSERT INTO $_table (
   ?, ?, ?, ?, ?,
   ?, ?, ?,
   ?, ?, ?,
-  ?, ?, ?, ?, ?, ?
+  ?, ?, ?, ?, ?, ?,
+  ?, ?, ?, ?, ?, ?,
+  ?, ?, ?, ?,
+  ?, ?,
+  ?, ?,
+  ?, ?,
+  ?, ?
 )
 ''',
         [
@@ -436,6 +498,24 @@ INSERT INTO $_table (
           Utils.str(f['range_items']),
           Utils.asFlag(f['usepic']) ? 1 : 0,
           Utils.asFlag(f['bb_background']) ? 1 : 0,
+          ArrangementContentType.parse(Utils.str(f['content_type'])).dbValue,
+          Utils.asInt(f['offer_id']),
+          ArrangementMediaType.parse(Utils.str(f['media_type'])).dbValue,
+          Utils.str(f['media_file']),
+          ArrangementMediaFit.parse(Utils.str(f['media_fit'])).dbValue,
+          Utils.asDouble(f['media_opacity'], 1).clamp(0, 1),
+          Utils.asInt(f['video_loop'], 1) != 0 ? 1 : 0,
+          Utils.asInt(f['video_muted'], 1) != 0 ? 1 : 0,
+          Utils.asInt(f['display_order']),
+          Utils.asInt(f['display_seconds'], 8),
+          Utils.asInt(f['border_top_width']),
+          Utils.str(f['border_top_color']),
+          Utils.asInt(f['border_right_width']),
+          Utils.str(f['border_right_color']),
+          Utils.asInt(f['border_bottom_width']),
+          Utils.str(f['border_bottom_color']),
+          Utils.asInt(f['border_left_width']),
+          Utils.str(f['border_left_color']),
         ],
       );
       count++;
@@ -476,7 +556,25 @@ UPDATE $_table SET
   modfname = ?,
   modfcolor = ?,
   detaildesc = ?,
-  bb_background = ?
+  bb_background = ?,
+  content_type = ?,
+  offer_id = ?,
+  media_type = ?,
+  media_file = ?,
+  media_fit = ?,
+  media_opacity = ?,
+  video_loop = ?,
+  video_muted = ?,
+  display_order = ?,
+  display_seconds = ?,
+  border_top_width = ?,
+  border_top_color = ?,
+  border_right_width = ?,
+  border_right_color = ?,
+  border_bottom_width = ?,
+  border_bottom_color = ?,
+  border_left_width = ?,
+  border_left_color = ?
 WHERE ID = ? AND comp_name = ?
 ''',
       [
@@ -501,9 +599,231 @@ WHERE ID = ? AND comp_name = ?
         '${QbColors.clampOpaque(a.modifierColor)}',
         a.detailDescription,
         a.boardBackground ? 1 : 0,
+        a.contentType.dbValue,
+        a.offerId.clamp(0, 2147483647),
+        a.mediaType.dbValue,
+        a.mediaFile,
+        a.mediaFit.dbValue,
+        a.clampedMediaOpacity,
+        a.videoLoop ? 1 : 0,
+        a.videoMuted ? 1 : 0,
+        a.displayOrder.clamp(0, 100000),
+        a.displaySeconds.clamp(1, 3600),
+        a.borderTopWidth.clamp(0, 200),
+        a.borderTopColor,
+        a.borderRightWidth.clamp(0, 200),
+        a.borderRightColor,
+        a.borderBottomWidth.clamp(0, 200),
+        a.borderBottomColor,
+        a.borderLeftWidth.clamp(0, 200),
+        a.borderLeftColor,
         id,
         name,
       ],
+    );
+  }
+
+  static const _boardBackgroundScreenName = 'Board background';
+
+  @override
+  Future<void> upsertBoardBackgroundImage({
+    required String compName,
+    required List<int> bytes,
+    int mainBackColor = 0,
+  }) async {
+    final name = compName.trim();
+    if (name.isEmpty || bytes.isEmpty) return;
+
+    // Only one board background per device.
+    await _client.query(
+      'UPDATE $_table SET bb_background = 0 WHERE comp_name = ?',
+      [name],
+    );
+
+    final existing = await _client.query(
+      'SELECT ID FROM $_table '
+      'WHERE comp_name = ? AND usepic = 1 AND screen_name = ? '
+      'LIMIT 1',
+      [name, _boardBackgroundScreenName],
+    );
+
+    if (existing.isNotEmpty) {
+      final id = Utils.asInt(existing.first['ID']);
+      await _client.query(
+        'UPDATE $_table SET '
+        'bb_pic = ?, bbpic_route = ?, bb_background = 1, mainbcolor = ?, '
+        "media_type = 'IMAGE', media_file = '', media_fit = 'COVER', "
+        'media_opacity = 1.000 '
+        'WHERE ID = ? AND comp_name = ?',
+        [bytes, '', '$mainBackColor', id, name],
+      );
+      return;
+    }
+
+    await _client.query(
+      '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor,
+  detaildesc, bbpic_route, bb_pic, range_items, usepic, bb_background,
+  content_type, media_type, media_fit, media_opacity
+) VALUES (
+  ?, ?, 0, 0, 0, 1920,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '0', '15', ?,
+  10, '', '0',
+  '', '', ?, '', 1, 1,
+  'MENU', 'IMAGE', 'COVER', 1.000
+)
+''',
+      [name, _boardBackgroundScreenName, '$mainBackColor', bytes],
+    );
+  }
+
+  @override
+  Future<void> upsertBoardBackgroundVideo({
+    required String compName,
+    required String mediaFile,
+    String pictureRoute = '',
+    int mainBackColor = 0,
+    bool videoLoop = true,
+    bool videoMuted = true,
+  }) async {
+    final name = compName.trim();
+    final file = mediaFile.trim();
+    if (name.isEmpty || file.isEmpty) return;
+    final route = pictureRoute.trim().isNotEmpty ? pictureRoute.trim() : file;
+
+    await _client.query(
+      'UPDATE $_table SET bb_background = 0 WHERE comp_name = ?',
+      [name],
+    );
+
+    final existing = await _client.query(
+      'SELECT ID FROM $_table '
+      'WHERE comp_name = ? AND usepic = 1 AND screen_name = ? '
+      'LIMIT 1',
+      [name, _boardBackgroundScreenName],
+    );
+
+    if (existing.isNotEmpty) {
+      final id = Utils.asInt(existing.first['ID']);
+      await _client.query(
+        'UPDATE $_table SET '
+        'bb_pic = NULL, bbpic_route = ?, bb_background = 1, mainbcolor = ?, '
+        "media_type = 'VIDEO', media_file = ?, media_fit = 'COVER', "
+        'media_opacity = 1.000, video_loop = ?, video_muted = ? '
+        'WHERE ID = ? AND comp_name = ?',
+        [
+          route,
+          '$mainBackColor',
+          file,
+          videoLoop ? 1 : 0,
+          videoMuted ? 1 : 0,
+          id,
+          name,
+        ],
+      );
+      return;
+    }
+
+    await _client.query(
+      '''
+INSERT INTO $_table (
+  comp_name, screen_name, class_id, xdis, ydis, max_width,
+  classfontsize, itemsfontsize, classfname, itemfname,
+  classucase, itemucase, classbold, itembold,
+  classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
+  modfsize, modfname, modfcolor,
+  detaildesc, bbpic_route, range_items, usepic, bb_background,
+  content_type, media_type, media_file, media_fit, media_opacity,
+  video_loop, video_muted
+) VALUES (
+  ?, ?, 0, 0, 0, 1920,
+  24, 20, '', '',
+  0, 0, 0, 0,
+  '15', '2', '0', '15', ?,
+  10, '', '0',
+  '', ?, '', 1, 1,
+  'MENU', 'VIDEO', ?, 'COVER', 1.000,
+  ?, ?
+)
+''',
+      [
+        name,
+        _boardBackgroundScreenName,
+        '$mainBackColor',
+        route,
+        file,
+        videoLoop ? 1 : 0,
+        videoMuted ? 1 : 0,
+      ],
+    );
+  }
+
+  @override
+  Future<void> clearBoardBackgroundImage(String compName) async {
+    final name = compName.trim();
+    if (name.isEmpty) return;
+
+    await _client.query(
+      'UPDATE $_table SET bb_background = 0 WHERE comp_name = ?',
+      [name],
+    );
+    await _client.query(
+      'DELETE FROM $_table '
+      'WHERE comp_name = ? AND usepic = 1 AND screen_name = ?',
+      [name, _boardBackgroundScreenName],
+    );
+  }
+
+  @override
+  Future<void> updateArrangementMedia({
+    required int id,
+    required String compName,
+    required ArrangementMediaType mediaType,
+    required String mediaFile,
+    String pictureRoute = '',
+    List<int>? pictureBytes,
+  }) async {
+    final name = compName.trim();
+    if (name.isEmpty || id <= 0) return;
+
+    if (pictureBytes != null) {
+      if (pictureBytes.isEmpty) {
+        await _client.query(
+          'UPDATE $_table SET '
+          'media_type = ?, media_file = ?, bbpic_route = ?, bb_pic = NULL '
+          'WHERE ID = ? AND comp_name = ?',
+          [mediaType.dbValue, mediaFile, pictureRoute, id, name],
+        );
+      } else {
+        await _client.query(
+          'UPDATE $_table SET '
+          'media_type = ?, media_file = ?, bbpic_route = ?, bb_pic = ? '
+          'WHERE ID = ? AND comp_name = ?',
+          [
+            mediaType.dbValue,
+            mediaFile,
+            pictureRoute,
+            pictureBytes,
+            id,
+            name,
+          ],
+        );
+      }
+      return;
+    }
+
+    await _client.query(
+      'UPDATE $_table SET '
+      'media_type = ?, media_file = ?, bbpic_route = ? '
+      'WHERE ID = ? AND comp_name = ?',
+      [mediaType.dbValue, mediaFile, pictureRoute, id, name],
     );
   }
 }

@@ -1,14 +1,21 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
+import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/arrangement_style_editor.dart';
+import 'package:camaleon_billboard/presentation/board/widgets/billboard_video_panel.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/menu_section_panel.dart';
 import 'package:camaleon_billboard/presentation/connection/connection_page.dart';
 
@@ -190,13 +197,11 @@ class _BoardPageState extends State<BoardPage> {
                                         ),
                                         child: BillboardPicturePanel(
                                           block: pic,
-                                          fit: BoxFit.cover,
                                         ),
                                       ),
                                     )
                                   : BillboardPicturePanel(
                                       block: pic,
-                                      fit: BoxFit.cover,
                                     ),
                             ),
                           // Menu coords stay in design space; bg fills the screen.
@@ -254,6 +259,9 @@ class _BoardPageState extends State<BoardPage> {
                                           '${section.arrangement.classFontName}-'
                                           '${section.arrangement.itemFontName}-'
                                           '${section.arrangement.modifierFontName}-'
+                                          '${section.arrangement.contentType.dbValue}-'
+                                          '${section.arrangement.borderTopWidth}-'
+                                          '${section.arrangement.borderTopColor}-'
                                           '${section.items.length}',
                                       onSelect: () => _selectBlock(
                                         section.arrangement.id,
@@ -298,7 +306,12 @@ class _BoardPageState extends State<BoardPage> {
                                       contentRevision:
                                           '${pic.arrangement.maxWidth}-'
                                           '${pic.bytes?.length ?? 0}-'
-                                          '${pic.route}',
+                                          '${pic.route}-'
+                                          '${pic.arrangement.mediaFit.dbValue}-'
+                                          '${pic.arrangement.mediaOpacity}-'
+                                          '${pic.arrangement.borderTopWidth}-'
+                                          '${pic.arrangement.borderTopColor}-'
+                                          '${pic.arrangement.mediaType.dbValue}',
                                       onSelect: () => _selectBlock(
                                         pic.arrangement.id,
                                       ),
@@ -317,7 +330,6 @@ class _BoardPageState extends State<BoardPage> {
                                       },
                                       child: BillboardPicturePanel(
                                         block: pic,
-                                        fit: BoxFit.cover,
                                       ),
                                     ),
                                   if (board.sections.isEmpty &&
@@ -386,6 +398,7 @@ class _BoardPageState extends State<BoardPage> {
               board: board,
               saving: c.savingLayout,
               dirty: c.layoutDirty,
+              uploadingBackground: c.uploadingBoardBackground,
               sidePanel: sideEditor,
               dockTop: dockEditorTop,
               sideWidth: sideW,
@@ -412,6 +425,10 @@ class _BoardPageState extends State<BoardPage> {
                 );
               },
               onBoardBackgroundColor: c.setBoardBackgroundColor,
+              onPickBackgroundImage: _pickBoardBackgroundImage,
+              onPickBackgroundVideo: _pickBoardBackgroundVideo,
+              onClearBackgroundImage: _clearBoardBackgroundImage,
+              onBrowseMediaFile: _browseSelectedMediaFile,
               onStylePatch: ({
                 int? classFontDelta,
                 int? itemFontDelta,
@@ -431,6 +448,18 @@ class _BoardPageState extends State<BoardPage> {
                 String? classFontName,
                 String? itemFontName,
                 String? modifierFontName,
+                ArrangementContentType? contentType,
+                int? offerId,
+                ArrangementMediaType? mediaType,
+                String? mediaFile,
+                ArrangementMediaFit? mediaFit,
+                double? mediaOpacity,
+                int? displayOrder,
+                int? displaySeconds,
+                int? borderWidth,
+                String? borderColor,
+                bool? videoLoop,
+                bool? videoMuted,
               }) {
                 final id = _selectedId;
                 if (id == null) return;
@@ -459,6 +488,18 @@ class _BoardPageState extends State<BoardPage> {
                   classFontName: classFontName,
                   itemFontName: itemFontName,
                   modifierFontName: modifierFontName,
+                  contentType: contentType,
+                  offerId: offerId,
+                  mediaType: mediaType,
+                  mediaFile: mediaFile,
+                  mediaFit: mediaFit,
+                  mediaOpacity: mediaOpacity,
+                  displayOrder: displayOrder,
+                  displaySeconds: displaySeconds,
+                  borderWidth: borderWidth,
+                  borderColor: borderColor,
+                  videoLoop: videoLoop,
+                  videoMuted: videoMuted,
                 );
               },
             )
@@ -567,6 +608,199 @@ class _BoardPageState extends State<BoardPage> {
     });
     c.beginLayoutEdit();
   }
+
+  Future<String?> _localPathForPicked(PlatformFile file) async {
+    final existing = file.path?.trim() ?? '';
+    if (existing.isNotEmpty) return existing;
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return null;
+      final dir = await getApplicationDocumentsDirectory();
+      final dest = File(
+        p.join(dir.path, 'bb_media', file.name.isNotEmpty ? file.name : 'media.bin'),
+      );
+      await dest.parent.create(recursive: true);
+      await dest.writeAsBytes(bytes, flush: true);
+      return dest.path;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> _pickBoardBackgroundImage() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    Uint8List? bytes;
+    try {
+      try {
+        final file = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 2560,
+          imageQuality: 88,
+        );
+        if (file == null) return;
+        bytes = await file.readAsBytes();
+      } on Object {
+        final files = await FilePicker.pickFiles(type: FileType.image);
+        if (files.isEmpty) return;
+        bytes = await files.first.readAsBytes();
+      }
+    } on Object catch (e) {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not open image: $e'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+
+    if (bytes.isEmpty) return;
+    final ok = await c.setBoardBackgroundImage(bytes);
+    if (!mounted) return;
+    if (ok) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(c.errorMessage ?? 'Could not save background image'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
+  }
+
+  Future<void> _pickBoardBackgroundVideo() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final files = await FilePicker.pickFiles(type: FileType.video);
+      if (files.isEmpty) return;
+      final file = files.first;
+      final path = await _localPathForPicked(file);
+      final name = file.name.isNotEmpty
+          ? file.name
+          : (path != null ? p.basename(path) : 'video');
+      if ((path == null || path.isEmpty) && name.isEmpty) return;
+
+      final ok = await c.setBoardBackgroundVideo(
+        mediaFile: name,
+        pictureRoute: path ?? name,
+      );
+      if (!mounted) return;
+      if (ok) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not save background video'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+    } on Object catch (e) {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not open video: $e'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+    }
+  }
+
+  Future<void> _clearBoardBackgroundImage() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await c.clearBoardBackgroundImage();
+    if (!mounted) return;
+    if (ok) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(c.errorMessage ?? 'Could not remove background image'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      ),
+    );
+  }
+
+  Future<void> _browseSelectedMediaFile() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final id = _selectedId;
+    if (id == null) return;
+
+    PictureBlock? pic;
+    for (final p in c.board?.pictures ?? const <PictureBlock>[]) {
+      if (p.arrangement.id == id) {
+        pic = p;
+        break;
+      }
+    }
+    if (pic == null) return;
+
+    var mediaType = pic.arrangement.mediaType;
+    if (mediaType == ArrangementMediaType.none) {
+      mediaType = ArrangementMediaType.image;
+    }
+
+    try {
+      final files = await FilePicker.pickFiles(
+        type: mediaType == ArrangementMediaType.video
+            ? FileType.video
+            : FileType.image,
+      );
+      if (files.isEmpty) return;
+      final file = files.first;
+      final path = await _localPathForPicked(file) ?? '';
+      final name = file.name.isNotEmpty
+          ? file.name
+          : (path.isNotEmpty ? p.basename(path) : 'media');
+
+      List<int>? bytes;
+      if (mediaType == ArrangementMediaType.image) {
+        try {
+          bytes = await file.readAsBytes();
+        } on Object {
+          if (path.isNotEmpty) {
+            bytes = await File(path).readAsBytes();
+          }
+        }
+      }
+
+      final ok = await c.applyPickedMedia(
+        arrangementId: id,
+        mediaType: mediaType,
+        mediaFile: name,
+        pictureRoute: path.isNotEmpty ? path : name,
+        pictureBytes: bytes,
+      );
+      if (!mounted) return;
+      if (ok) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not save media file'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+    } on Object catch (e) {
+      if (!mounted) return;
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not open file picker: $e'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+    }
+  }
 }
 
 class _EditChrome extends StatelessWidget {
@@ -575,12 +809,17 @@ class _EditChrome extends StatelessWidget {
     required this.board,
     required this.saving,
     required this.dirty,
+    required this.uploadingBackground,
     required this.sidePanel,
     required this.dockTop,
     required this.sideWidth,
     required this.onCancel,
     required this.onSave,
     required this.onBoardBackgroundColor,
+    required this.onPickBackgroundImage,
+    required this.onPickBackgroundVideo,
+    required this.onClearBackgroundImage,
+    required this.onBrowseMediaFile,
     required this.onStylePatch,
   });
 
@@ -588,12 +827,17 @@ class _EditChrome extends StatelessWidget {
   final BillboardBoard board;
   final bool saving;
   final bool dirty;
+  final bool uploadingBackground;
   final bool sidePanel;
   final bool dockTop;
   final double sideWidth;
   final VoidCallback onCancel;
   final VoidCallback onSave;
   final ValueChanged<int> onBoardBackgroundColor;
+  final VoidCallback onPickBackgroundImage;
+  final VoidCallback onPickBackgroundVideo;
+  final VoidCallback onClearBackgroundImage;
+  final VoidCallback onBrowseMediaFile;
   final StylePatch onStylePatch;
 
   @override
@@ -618,6 +862,20 @@ class _EditChrome extends StatelessWidget {
     }
 
     final hasSelection = selectedSection != null || selectedPicture != null;
+    Uint8List? bgBytes;
+    var bgMediaType = ArrangementMediaType.none;
+    var bgMediaFile = '';
+    for (final p in board.boardBackgroundPictures) {
+      bgMediaType = p.arrangement.mediaType;
+      bgMediaFile = p.arrangement.resolvedVideoPath.isNotEmpty
+          ? p.arrangement.resolvedVideoPath
+          : p.arrangement.mediaFile;
+      final b = p.bytes;
+      if (b != null && b.isNotEmpty) {
+        bgBytes = b;
+        break;
+      }
+    }
     final editorBody = ArrangementStyleEditor(
       boardMainBackColor: board.mainBackColor,
       onBoardBackgroundColor: onBoardBackgroundColor,
@@ -625,6 +883,14 @@ class _EditChrome extends StatelessWidget {
       picture: selectedPicture,
       compact: !sidePanel,
       multipleBoardBackgrounds: board.hasMultipleBoardBackgrounds,
+      backgroundPreviewBytes: bgBytes,
+      backgroundMediaType: bgMediaType,
+      backgroundMediaFile: bgMediaFile,
+      uploadingBackground: uploadingBackground,
+      onPickBackgroundImage: onPickBackgroundImage,
+      onPickBackgroundVideo: onPickBackgroundVideo,
+      onClearBackgroundImage: onClearBackgroundImage,
+      onBrowseMediaFile: onBrowseMediaFile,
       onPatch: onStylePatch,
     );
 

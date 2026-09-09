@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/core/utils/board_fonts.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
+import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 
 typedef StylePatch = void Function({
@@ -25,6 +26,18 @@ typedef StylePatch = void Function({
   String? classFontName,
   String? itemFontName,
   String? modifierFontName,
+  ArrangementContentType? contentType,
+  int? offerId,
+  ArrangementMediaType? mediaType,
+  String? mediaFile,
+  ArrangementMediaFit? mediaFit,
+  double? mediaOpacity,
+  int? displayOrder,
+  int? displaySeconds,
+  int? borderWidth,
+  String? borderColor,
+  bool? videoLoop,
+  bool? videoMuted,
 });
 
 /// Full `bb_arrangement` style controls for the selected block / board.
@@ -38,6 +51,14 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.picture,
     this.compact = false,
     this.multipleBoardBackgrounds = false,
+    this.backgroundPreviewBytes,
+    this.backgroundMediaType = ArrangementMediaType.none,
+    this.backgroundMediaFile = '',
+    this.uploadingBackground = false,
+    this.onPickBackgroundImage,
+    this.onPickBackgroundVideo,
+    this.onClearBackgroundImage,
+    this.onBrowseMediaFile,
   });
 
   final int boardMainBackColor;
@@ -47,10 +68,20 @@ class ArrangementStyleEditor extends StatelessWidget {
   final PictureBlock? picture;
   final bool compact;
   final bool multipleBoardBackgrounds;
+  final Uint8List? backgroundPreviewBytes;
+  final ArrangementMediaType backgroundMediaType;
+  final String backgroundMediaFile;
+  final bool uploadingBackground;
+  final VoidCallback? onPickBackgroundImage;
+  final VoidCallback? onPickBackgroundVideo;
+  final VoidCallback? onClearBackgroundImage;
+  final VoidCallback? onBrowseMediaFile;
 
   @override
   Widget build(BuildContext context) {
     final a = section?.arrangement ?? picture?.arrangement;
+    final hasBgImage =
+        backgroundPreviewBytes != null && backgroundPreviewBytes!.isNotEmpty;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -64,6 +95,142 @@ class ArrangementStyleEditor extends StatelessWidget {
               _ColorSwatches(
                 value: boardMainBackColor,
                 onChanged: onBoardBackgroundColor,
+              ),
+              const SizedBox(height: 12),
+              const _Label('Background media'),
+              const SizedBox(height: 8),
+              if (hasBgImage)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Image.memory(
+                      backgroundPreviewBytes!,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                )
+              else if (backgroundMediaType == ArrangementMediaType.video &&
+                  backgroundMediaFile.isNotEmpty)
+                Container(
+                  height: 72,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.videocam_rounded,
+                          color: Colors.white70, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          backgroundMediaFile,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  height: 72,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Text(
+                    'No media · solid color only',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.45),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: uploadingBackground
+                          ? null
+                          : onPickBackgroundImage,
+                      icon: uploadingBackground
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              hasBgImage
+                                  ? Icons.photo_library_outlined
+                                  : Icons.add_photo_alternate_outlined,
+                              size: 18,
+                            ),
+                      label: Text(hasBgImage ? 'Change image' : 'Image'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: CamaleonColors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: uploadingBackground
+                          ? null
+                          : onPickBackgroundVideo,
+                      icon: const Icon(Icons.videocam_outlined, size: 18),
+                      label: Text(
+                        backgroundMediaType == ArrangementMediaType.video
+                            ? 'Change video'
+                            : 'Video',
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white12,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  if ((hasBgImage ||
+                          backgroundMediaType ==
+                              ArrangementMediaType.video) &&
+                      onClearBackgroundImage != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      tooltip: 'Remove background media',
+                      onPressed:
+                          uploadingBackground ? null : onClearBackgroundImage,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white12,
+                        foregroundColor: Colors.white70,
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Image → bb_pic blob. Video → media_file path (loops behind the menu).',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: 11,
+                  height: 1.35,
+                ),
               ),
               if (multipleBoardBackgrounds) ...[
                 const SizedBox(height: 10),
@@ -92,19 +259,6 @@ class ArrangementStyleEditor extends StatelessWidget {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ],
-              if (picture == null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  a == null
-                      ? 'Tap a photo, then turn on “Fill whole board”.'
-                      : 'Want a photo behind everything? Tap a photo on the board first.',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: 12,
-                    height: 1.35,
                   ),
                 ),
               ],
@@ -163,8 +317,25 @@ class ArrangementStyleEditor extends StatelessWidget {
                 onPlusBig: () => onPatch(maxWidth: a.maxWidth + 100),
               ),
             ],
+            const SizedBox(height: 8),
+            _MediaControls(
+              arrangement: a,
+              onPatch: onPatch,
+              onBrowseMediaFile: onBrowseMediaFile,
+              browsing: uploadingBackground,
+            ),
           ],
           if (section != null) ...[
+            const SizedBox(height: 8),
+            _ContentTypeCard(
+              arrangement: a,
+              onPatch: onPatch,
+            ),
+            const SizedBox(height: 8),
+            _BorderControls(
+              arrangement: a,
+              onPatch: onPatch,
+            ),
             const SizedBox(height: 8),
             _Card(
               child: Column(
@@ -460,6 +631,441 @@ class _BackgroundToggle extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _ContentTypeCard extends StatelessWidget {
+  const _ContentTypeCard({
+    required this.arrangement,
+    required this.onPatch,
+  });
+
+  final ArrangementBlock arrangement;
+  final StylePatch onPatch;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = arrangement;
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _Label('Content type'),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (final t in ArrangementContentType.values) ...[
+                if (t != ArrangementContentType.values.first)
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: _StyleToggle(
+                    label: t.dbValue,
+                    value: a.contentType == t,
+                    onChanged: (_) => onPatch(contentType: t),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (a.contentType == ArrangementContentType.offer) ...[
+            const SizedBox(height: 10),
+            _StepperRow(
+              icon: Icons.local_offer_outlined,
+              label: 'Offer ID',
+              valueLabel: '${a.offerId}',
+              unit: '',
+              onMinus: () => onPatch(offerId: a.offerId - 1),
+              onPlus: () => onPatch(offerId: a.offerId + 1),
+              onMinusBig: () => onPatch(offerId: a.offerId - 10),
+              onPlusBig: () => onPatch(offerId: a.offerId + 10),
+              embedded: true,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'dates_special / day_specials id from POS',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          _StepperRow(
+            icon: Icons.reorder_rounded,
+            label: 'Order',
+            valueLabel: '${a.displayOrder}',
+            unit: '',
+            onMinus: () => onPatch(displayOrder: a.displayOrder - 1),
+            onPlus: () => onPatch(displayOrder: a.displayOrder + 1),
+            onMinusBig: () => onPatch(displayOrder: a.displayOrder - 5),
+            onPlusBig: () => onPatch(displayOrder: a.displayOrder + 5),
+            embedded: true,
+          ),
+          const _Divider(),
+          _StepperRow(
+            icon: Icons.timer_outlined,
+            label: 'Seconds',
+            valueLabel: '${a.displaySeconds}',
+            unit: 's',
+            onMinus: () => onPatch(displaySeconds: a.displaySeconds - 1),
+            onPlus: () => onPatch(displaySeconds: a.displaySeconds + 1),
+            onMinusBig: () => onPatch(displaySeconds: a.displaySeconds - 5),
+            onPlusBig: () => onPatch(displaySeconds: a.displaySeconds + 5),
+            embedded: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MediaControls extends StatelessWidget {
+  const _MediaControls({
+    required this.arrangement,
+    required this.onPatch,
+    this.onBrowseMediaFile,
+    this.browsing = false,
+  });
+
+  final ArrangementBlock arrangement;
+  final StylePatch onPatch;
+  final VoidCallback? onBrowseMediaFile;
+  final bool browsing;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = arrangement;
+    final opacityPct = (a.clampedMediaOpacity * 100).round();
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _Label('Media'),
+          const SizedBox(height: 8),
+          Text(
+            'Type',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final t in ArrangementMediaType.values) ...[
+                if (t != ArrangementMediaType.values.first)
+                  const SizedBox(width: 6),
+                Expanded(
+                  child: _StyleToggle(
+                    label: t.dbValue,
+                    value: a.mediaType == t,
+                    onChanged: (_) => onPatch(mediaType: t),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (a.mediaType != ArrangementMediaType.none) ...[
+            const SizedBox(height: 10),
+            _MediaFileField(
+              value: a.mediaFile,
+              browsing: browsing,
+              onChanged: (v) => onPatch(mediaFile: v),
+              onBrowse: onBrowseMediaFile,
+              isVideo: a.mediaType == ArrangementMediaType.video,
+            ),
+          ],
+          const SizedBox(height: 10),
+          Text(
+            'Fit',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (final f in ArrangementMediaFit.values) ...[
+                if (f != ArrangementMediaFit.values.first)
+                  const SizedBox(width: 6),
+                Expanded(
+                  child: _StyleToggle(
+                    label: f.dbValue,
+                    value: a.mediaFit == f,
+                    onChanged: (_) => onPatch(mediaFit: f),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          _StepperRow(
+            icon: Icons.opacity_rounded,
+            label: 'Opacity',
+            valueLabel: '$opacityPct',
+            unit: '%',
+            onMinus: () => onPatch(mediaOpacity: a.mediaOpacity - 0.05),
+            onPlus: () => onPatch(mediaOpacity: a.mediaOpacity + 0.05),
+            onMinusBig: () => onPatch(mediaOpacity: a.mediaOpacity - 0.15),
+            onPlusBig: () => onPatch(mediaOpacity: a.mediaOpacity + 0.15),
+            embedded: true,
+          ),
+          const _Divider(),
+          _StepperRow(
+            icon: Icons.reorder_rounded,
+            label: 'Order',
+            valueLabel: '${a.displayOrder}',
+            unit: '',
+            onMinus: () => onPatch(displayOrder: a.displayOrder - 1),
+            onPlus: () => onPatch(displayOrder: a.displayOrder + 1),
+            onMinusBig: () => onPatch(displayOrder: a.displayOrder - 5),
+            onPlusBig: () => onPatch(displayOrder: a.displayOrder + 5),
+            embedded: true,
+          ),
+          const _Divider(),
+          _StepperRow(
+            icon: Icons.timer_outlined,
+            label: 'Seconds',
+            valueLabel: '${a.displaySeconds}',
+            unit: 's',
+            onMinus: () => onPatch(displaySeconds: a.displaySeconds - 1),
+            onPlus: () => onPatch(displaySeconds: a.displaySeconds + 1),
+            onMinusBig: () => onPatch(displaySeconds: a.displaySeconds - 5),
+            onPlusBig: () => onPatch(displaySeconds: a.displaySeconds + 5),
+            embedded: true,
+          ),
+          if (a.mediaType == ArrangementMediaType.video) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _StyleToggle(
+                    label: 'Loop',
+                    value: a.videoLoop,
+                    onChanged: (v) => onPatch(videoLoop: v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _StyleToggle(
+                    label: 'Muted',
+                    value: a.videoMuted,
+                    onChanged: (v) => onPatch(videoMuted: v),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          _BorderControls(arrangement: a, onPatch: onPatch, embedded: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _MediaFileField extends StatefulWidget {
+  const _MediaFileField({
+    required this.value,
+    required this.onChanged,
+    this.onBrowse,
+    this.browsing = false,
+    this.isVideo = false,
+  });
+
+  final String value;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onBrowse;
+  final bool browsing;
+  final bool isVideo;
+
+  @override
+  State<_MediaFileField> createState() => _MediaFileFieldState();
+}
+
+class _MediaFileFieldState extends State<_MediaFileField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.value);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MediaFileField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value &&
+        widget.value != _controller.text) {
+      _controller.text = widget.value;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          widget.isVideo ? 'Video file' : 'Image file',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                cursorColor: CamaleonColors.greenSoft,
+                decoration: InputDecoration(
+                  hintText: widget.isVideo
+                      ? 'path/video.mp4'
+                      : 'path/image.jpg',
+                  hintStyle:
+                      TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                  isDense: true,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.06),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: CamaleonColors.green),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                onChanged: widget.onChanged,
+                onSubmitted: widget.onChanged,
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 44,
+              child: FilledButton.tonalIcon(
+                onPressed: widget.browsing ? null : widget.onBrowse,
+                icon: widget.browsing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.folder_open_rounded, size: 18),
+                label: const Text('Browse'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white12,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          widget.isVideo
+              ? 'Browse opens the system file picker. Path is saved in media_file.'
+              : 'Browse saves the image in bb_pic and the name in media_file.',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.4),
+            fontSize: 11,
+            height: 1.3,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BorderControls extends StatelessWidget {
+  const _BorderControls({
+    required this.arrangement,
+    required this.onPatch,
+    this.embedded = false,
+  });
+
+  final ArrangementBlock arrangement;
+  final StylePatch onPatch;
+  final bool embedded;
+
+  int get _width {
+    final a = arrangement;
+    return [
+      a.borderTopWidth,
+      a.borderRightWidth,
+      a.borderBottomWidth,
+      a.borderLeftWidth,
+    ].fold<int>(0, (m, v) => v > m ? v : m);
+  }
+
+  int get _colorIndex {
+    final raw = arrangement.borderTopColor.trim().isNotEmpty
+        ? arrangement.borderTopColor
+        : arrangement.borderLeftColor;
+    return int.tryParse(raw.trim()) ?? 15;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!embedded) ...[
+          const _Label('Border'),
+          const SizedBox(height: 8),
+        ] else ...[
+          Text(
+            'Border',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+        _StepperRow(
+          icon: Icons.border_outer_rounded,
+          label: 'Width',
+          valueLabel: '$_width',
+          unit: 'px',
+          onMinus: () => onPatch(borderWidth: _width - 1),
+          onPlus: () => onPatch(borderWidth: _width + 1),
+          onMinusBig: () => onPatch(borderWidth: _width - 4),
+          onPlusBig: () => onPatch(borderWidth: _width + 4),
+          embedded: true,
+        ),
+        const SizedBox(height: 8),
+        _ColorSwatches(
+          value: _colorIndex.clamp(0, 15),
+          onChanged: (v) => onPatch(borderColor: '$v'),
+          dense: true,
+        ),
+      ],
+    );
+    if (embedded) return body;
+    return _Card(child: body);
   }
 }
 

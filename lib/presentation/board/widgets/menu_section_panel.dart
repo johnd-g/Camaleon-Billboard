@@ -7,6 +7,8 @@ import 'package:camaleon_billboard/core/utils/board_fonts.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
+import 'package:camaleon_billboard/presentation/board/arrangement_block_ui.dart';
+import 'package:camaleon_billboard/presentation/board/widgets/billboard_video_panel.dart';
 
 class MenuSectionPanel extends StatelessWidget {
   const MenuSectionPanel({super.key, required this.section});
@@ -19,7 +21,8 @@ class MenuSectionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = section.arrangement;
-    return ColoredBox(
+    final border = a.decorationBorder;
+    Widget body = ColoredBox(
       color: QbColors.of(a.itemBackColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -48,6 +51,13 @@ class MenuSectionPanel extends StatelessWidget {
         ],
       ),
     );
+    if (border != null) {
+      body = DecoratedBox(
+        decoration: BoxDecoration(border: border),
+        child: body,
+      );
+    }
+    return body;
   }
 }
 
@@ -149,14 +159,55 @@ class BillboardPicturePanel extends StatelessWidget {
   const BillboardPicturePanel({
     super.key,
     required this.block,
-    this.fit = BoxFit.contain,
+    this.fit,
   });
 
   final PictureBlock block;
-  final BoxFit fit;
+  final BoxFit? fit;
 
   @override
   Widget build(BuildContext context) {
+    final a = block.arrangement;
+    final resolvedFit = fit ?? a.mediaBoxFit;
+    final opacity = a.clampedMediaOpacity;
+    final border = a.decorationBorder;
+
+    Widget child;
+    if (a.mediaType == ArrangementMediaType.video) {
+      final path = a.resolvedVideoPath;
+      if (path.isEmpty) {
+        child = const ColoredBox(
+          color: Color(0x33000000),
+          child: Center(
+            child: Icon(Icons.videocam_outlined, color: Colors.white54, size: 40),
+          ),
+        );
+      } else {
+        child = BillboardVideoPanel(
+          key: ValueKey('vid-${a.id}-$path-${a.videoLoop}-${a.videoMuted}'),
+          path: path,
+          fit: resolvedFit,
+          loop: a.videoLoop,
+          muted: a.videoMuted,
+        );
+      }
+    } else {
+      child = _image(resolvedFit);
+    }
+
+    if (opacity < 0.999) {
+      child = Opacity(opacity: opacity, child: child);
+    }
+    if (border != null) {
+      child = DecoratedBox(
+        decoration: BoxDecoration(border: border),
+        child: child,
+      );
+    }
+    return child;
+  }
+
+  Widget _image(BoxFit fit) {
     final bytes = block.bytes;
     if (bytes != null && bytes.isNotEmpty) {
       return Image.memory(
@@ -169,7 +220,9 @@ class BillboardPicturePanel extends StatelessWidget {
       );
     }
 
-    final path = block.route;
+    final path = block.route.isNotEmpty
+        ? block.route
+        : block.arrangement.mediaFile;
     if (path.isEmpty) {
       return const ColoredBox(
         color: Color(0x33000000),

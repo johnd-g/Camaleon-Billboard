@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
 import 'package:camaleon_billboard/core/db/lan_mysql_discovery.dart';
 import 'package:camaleon_billboard/core/db/mysql_client.dart';
+import 'package:camaleon_billboard/core/errors/app_failure.dart';
 import 'package:camaleon_billboard/core/utils/device_identity.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/data/repositories/billboard_repository_impl.dart';
@@ -291,7 +292,7 @@ class BillboardController extends ChangeNotifier {
         error: errorMessage,
       );
     } catch (e) {
-      errorMessage = e.toString();
+      errorMessage = AppFailure.message(e);
       return (host: '', databases: const <String>[], error: errorMessage);
     } finally {
       searchingDatabases = false;
@@ -484,7 +485,7 @@ class BillboardController extends ChangeNotifier {
       );
     } catch (e, st) {
       if (kDebugMode) debugPrint('autoConnect failed: $e\n$st');
-      errorMessage = e.toString();
+      errorMessage = AppFailure.message(e);
       if (!silent) {
         phase = BillboardPhase.needsConnection;
         notifyListeners();
@@ -535,7 +536,7 @@ class BillboardController extends ChangeNotifier {
       if (kDebugMode) {
         debugPrint('Billboard open failed: $e\n$st');
       }
-      errorMessage = e.toString();
+      errorMessage = AppFailure.message(e);
       phase = BillboardPhase.error;
     }
     notifyListeners();
@@ -707,6 +708,18 @@ class BillboardController extends ChangeNotifier {
     String? modifierFontName,
     String? detailDescription,
     bool? boardBackground,
+    ArrangementContentType? contentType,
+    int? offerId,
+    ArrangementMediaType? mediaType,
+    String? mediaFile,
+    ArrangementMediaFit? mediaFit,
+    double? mediaOpacity,
+    int? displayOrder,
+    int? displaySeconds,
+    int? borderWidth,
+    String? borderColor,
+    bool? videoLoop,
+    bool? videoMuted,
   }) {
     final b = board;
     if (b == null || !layoutEditing) return;
@@ -773,6 +786,81 @@ class BillboardController extends ChangeNotifier {
       } else if (detailDescription != null) {
         next = next.copyWith(detailDescription: detailDescription);
       }
+      if (contentType != null) {
+        next = next.copyWith(contentType: contentType);
+      }
+      if (offerId != null) {
+        next = next.copyWith(offerId: offerId.clamp(0, 2147483647));
+      }
+      if (mediaType != null) {
+        if (mediaType == ArrangementMediaType.video) {
+          // Drop the image blob so the block actually becomes a video.
+          next = next.copyWith(
+            mediaType: mediaType,
+            clearPictureBytes: true,
+          );
+          final name = computerName.trim();
+          if (name.isNotEmpty) {
+            unawaited(
+              _billboardRepo.updateArrangementMedia(
+                id: arrangementId,
+                compName: name,
+                mediaType: ArrangementMediaType.video,
+                mediaFile: next.mediaFile,
+                pictureRoute: next.pictureRoute,
+                pictureBytes: const <int>[],
+              ),
+            );
+          }
+        } else if (mediaType == ArrangementMediaType.image) {
+          next = next.copyWith(mediaType: mediaType);
+        } else {
+          next = next.copyWith(
+            mediaType: mediaType,
+            mediaFile: '',
+            pictureRoute: '',
+            clearPictureBytes: true,
+          );
+        }
+      }
+      if (mediaFile != null) {
+        next = next.copyWith(
+          mediaFile: mediaFile,
+          // Live preview uses pictureRoute; keep it in sync for IMAGE paths.
+          pictureRoute: mediaFile.isNotEmpty ? mediaFile : next.pictureRoute,
+        );
+      }
+      if (mediaFit != null) next = next.copyWith(mediaFit: mediaFit);
+      if (mediaOpacity != null) {
+        next = next.copyWith(
+          mediaOpacity: mediaOpacity.clamp(0.0, 1.0),
+        );
+      }
+      if (displayOrder != null) {
+        next = next.copyWith(displayOrder: displayOrder.clamp(0, 100000));
+      }
+      if (displaySeconds != null) {
+        next = next.copyWith(displaySeconds: displaySeconds.clamp(1, 3600));
+      }
+      if (borderWidth != null) {
+        final w = borderWidth.clamp(0, 200);
+        next = next.copyWith(
+          borderTopWidth: w,
+          borderRightWidth: w,
+          borderBottomWidth: w,
+          borderLeftWidth: w,
+        );
+      }
+      if (borderColor != null) {
+        next = next.copyWith(
+          borderTopColor: borderColor,
+          borderRightColor: borderColor,
+          borderBottomColor: borderColor,
+          borderLeftColor: borderColor,
+        );
+      }
+      if (videoLoop != null) next = next.copyWith(videoLoop: videoLoop);
+      if (videoMuted != null) next = next.copyWith(videoMuted: videoMuted);
       return next;
     }
 
@@ -839,6 +927,196 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool uploadingBoardBackground = false;
+
+  /// Picks [bytes] into DB as board background and refreshes picture blocks in memory.
+  Future<bool> setBoardBackgroundImage(List<int> bytes) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || bytes.isEmpty) return false;
+    if (!layoutEditing) return false;
+
+    uploadingBoardBackground = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _billboardRepo.upsertBoardBackgroundImage(
+        compName: name,
+        bytes: bytes,
+        mainBackColor: b.mainBackColor,
+      );
+      final pics = await _billboardRepo.loadPictureArrangements(name);
+      board = b.copyWith(
+        pictures: [
+          for (final a in pics)
+            PictureBlock(
+              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
+            ),
+        ],
+      );
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Board background upload failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sets a looping/muted video path as the full-board background.
+  Future<bool> setBoardBackgroundVideo({
+    required String mediaFile,
+    String pictureRoute = '',
+    bool videoLoop = true,
+    bool videoMuted = true,
+  }) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || mediaFile.trim().isEmpty) return false;
+    if (!layoutEditing) return false;
+
+    uploadingBoardBackground = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _billboardRepo.upsertBoardBackgroundVideo(
+        compName: name,
+        mediaFile: mediaFile,
+        pictureRoute: pictureRoute,
+        mainBackColor: b.mainBackColor,
+        videoLoop: videoLoop,
+        videoMuted: videoMuted,
+      );
+      final pics = await _billboardRepo.loadPictureArrangements(name);
+      board = b.copyWith(
+        pictures: [
+          for (final a in pics)
+            PictureBlock(
+              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
+            ),
+        ],
+      );
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Board background video failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Removes the dedicated board-background image from DB (and unsets flags).
+  Future<bool> clearBoardBackgroundImage() async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || !layoutEditing) return false;
+
+    uploadingBoardBackground = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _billboardRepo.clearBoardBackgroundImage(name);
+      final pics = await _billboardRepo.loadPictureArrangements(name);
+      board = b.copyWith(
+        pictures: [
+          for (final a in pics)
+            PictureBlock(
+              arrangement: a.copyWith(mainBackColor: b.mainBackColor),
+            ),
+        ],
+      );
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Clear board background failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Applies a file picked from Explorer / Android picker to a photo block.
+  ///
+  /// IMAGE → `bb_pic` blob + `media_file` name (both).
+  /// VIDEO → `media_file` / `bbpic_route` path only (no huge blob).
+  Future<bool> applyPickedMedia({
+    required int arrangementId,
+    required ArrangementMediaType mediaType,
+    required String mediaFile,
+    String pictureRoute = '',
+    List<int>? pictureBytes,
+  }) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || !layoutEditing) return false;
+    if (mediaType == ArrangementMediaType.none) return false;
+
+    uploadingBoardBackground = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      await _billboardRepo.updateArrangementMedia(
+        id: arrangementId,
+        compName: name,
+        mediaType: mediaType,
+        mediaFile: mediaFile,
+        pictureRoute: pictureRoute.isNotEmpty ? pictureRoute : mediaFile,
+        // IMAGE: write blob. VIDEO: clear old bb_pic so image doesn't stick.
+        pictureBytes: mediaType == ArrangementMediaType.image &&
+                pictureBytes != null &&
+                pictureBytes.isNotEmpty
+            ? pictureBytes
+            : (mediaType == ArrangementMediaType.video
+                ? const <int>[]
+                : null),
+      );
+
+      board = b.copyWith(
+        pictures: [
+          for (final p in b.pictures)
+            if (p.arrangement.id == arrangementId)
+              p.copyWith(
+                arrangement: p.arrangement.copyWith(
+                  mediaType: mediaType,
+                  mediaFile: mediaFile,
+                  pictureRoute:
+                      pictureRoute.isNotEmpty ? pictureRoute : mediaFile,
+                  pictureBytes: mediaType == ArrangementMediaType.image &&
+                          pictureBytes != null &&
+                          pictureBytes.isNotEmpty
+                      ? Uint8List.fromList(pictureBytes)
+                      : null,
+                  clearPictureBytes: mediaType != ArrangementMediaType.image,
+                ),
+              )
+            else
+              p,
+        ],
+      );
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Apply media failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      uploadingBoardBackground = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Writes current section/picture positions + styles to `bb_arrangement`.
   Future<bool> saveLayoutEdits() async {
     final b = board;
@@ -877,7 +1155,7 @@ class BillboardController extends ChangeNotifier {
       return true;
     } catch (e, st) {
       if (kDebugMode) debugPrint('Save layout failed: $e\n$st');
-      errorMessage = e.toString();
+      errorMessage = AppFailure.message(e);
       savingLayout = false;
       notifyListeners();
       return false;

@@ -56,4 +56,39 @@ abstract class BillboardRepository {
     required String compName,
     required ArrangementBlock arrangement,
   });
+
+  /// Stores [bytes] as the sole board-background photo (`bb_pic` + `bb_background=1`).
+  ///
+  /// Creates or updates a dedicated `usepic=1` row named "Board background".
+  Future<void> upsertBoardBackgroundImage({
+    required String compName,
+    required List<int> bytes,
+    int mainBackColor = 0,
+  });
+
+  /// Stores a video path as the sole board background (`media_type=VIDEO`).
+  Future<void> upsertBoardBackgroundVideo({
+    required String compName,
+    required String mediaFile,
+    String pictureRoute = '',
+    int mainBackColor = 0,
+    bool videoLoop = true,
+    bool videoMuted = true,
+  });
+
+  /// Clears `bb_background` and removes the dedicated background row if present.
+  Future<void> clearBoardBackgroundImage(String compName);
+
+  /// Updates media fields for one picture row.
+  ///
+  /// When [pictureBytes] is non-null, writes `bb_pic`. Pass an empty list to
+  /// clear the blob. Omit (null) to leave `bb_pic` unchanged.
+  Future<void> updateArrangementMedia({
+    required int id,
+    required String compName,
+    required ArrangementMediaType mediaType,
+    required String mediaFile,
+    String pictureRoute = '',
+    List<int>? pictureBytes,
+  });
 }

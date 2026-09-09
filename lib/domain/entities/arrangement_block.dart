@@ -32,6 +32,24 @@ class ArrangementBlock {
     this.rangeItems = '',
     this.usePicture = false,
     this.boardBackground = false,
+    this.contentType = ArrangementContentType.menu,
+    this.offerId = 0,
+    this.mediaType = ArrangementMediaType.none,
+    this.mediaFile = '',
+    this.mediaFit = ArrangementMediaFit.cover,
+    this.mediaOpacity = 1,
+    this.videoLoop = true,
+    this.videoMuted = true,
+    this.displayOrder = 0,
+    this.displaySeconds = 8,
+    this.borderTopWidth = 0,
+    this.borderTopColor = '',
+    this.borderRightWidth = 0,
+    this.borderRightColor = '',
+    this.borderBottomWidth = 0,
+    this.borderBottomColor = '',
+    this.borderLeftWidth = 0,
+    this.borderLeftColor = '',
   });
 
   final int id;
@@ -59,6 +77,7 @@ class ArrangementBlock {
   final int modifierColor;
   final String detailDescription;
   final String pictureRoute;
+
   /// Raw image from `bb_arrangement.bb_pic` (LONGBLOB). Preferred over [pictureRoute].
   final Uint8List? pictureBytes;
   final String rangeItems;
@@ -67,11 +86,54 @@ class ArrangementBlock {
   /// `bb_arrangement.bb_background` — full-bleed board image (only one should be set).
   final bool boardBackground;
 
+  /// `content_type`: MENU or OFFER.
+  final ArrangementContentType contentType;
+
+  /// Daily special / offer id when [contentType] is offer.
+  final int offerId;
+
+  /// `media_type`: NONE, IMAGE, or VIDEO.
+  final ArrangementMediaType mediaType;
+
+  /// Relative image or video filename (`media_file`).
+  final String mediaFile;
+
+  /// `media_fit`: COVER, CONTAIN, or STRETCH.
+  final ArrangementMediaFit mediaFit;
+
+  /// `media_opacity` 0.000–1.000.
+  final double mediaOpacity;
+
+  final bool videoLoop;
+  final bool videoMuted;
+  final int displayOrder;
+  final int displaySeconds;
+
+  final int borderTopWidth;
+  final String borderTopColor;
+  final int borderRightWidth;
+  final String borderRightColor;
+  final int borderBottomWidth;
+  final String borderBottomColor;
+  final int borderLeftWidth;
+  final String borderLeftColor;
+
   bool get hasPicture =>
       (pictureBytes != null && pictureBytes!.isNotEmpty) ||
-      pictureRoute.isNotEmpty;
+      pictureRoute.isNotEmpty ||
+      ((mediaType == ArrangementMediaType.image ||
+              mediaType == ArrangementMediaType.video) &&
+          mediaFile.isNotEmpty);
 
   bool get isBoardBackground => boardBackground;
+
+  bool get hasAnyBorder =>
+      borderTopWidth > 0 ||
+      borderRightWidth > 0 ||
+      borderBottomWidth > 0 ||
+      borderLeftWidth > 0;
+
+  double get clampedMediaOpacity => mediaOpacity.clamp(0.0, 1.0);
 
   /// Display height for foreground photos (no DB height column — follows width).
   double get pictureDisplayHeight =>
@@ -114,9 +176,28 @@ class ArrangementBlock {
     String? detailDescription,
     String? pictureRoute,
     Uint8List? pictureBytes,
+    bool clearPictureBytes = false,
     String? rangeItems,
     bool? usePicture,
     bool? boardBackground,
+    ArrangementContentType? contentType,
+    int? offerId,
+    ArrangementMediaType? mediaType,
+    String? mediaFile,
+    ArrangementMediaFit? mediaFit,
+    double? mediaOpacity,
+    bool? videoLoop,
+    bool? videoMuted,
+    int? displayOrder,
+    int? displaySeconds,
+    int? borderTopWidth,
+    String? borderTopColor,
+    int? borderRightWidth,
+    String? borderRightColor,
+    int? borderBottomWidth,
+    String? borderBottomColor,
+    int? borderLeftWidth,
+    String? borderLeftColor,
   }) {
     return ArrangementBlock(
       id: id ?? this.id,
@@ -144,10 +225,97 @@ class ArrangementBlock {
       modifierColor: modifierColor ?? this.modifierColor,
       detailDescription: detailDescription ?? this.detailDescription,
       pictureRoute: pictureRoute ?? this.pictureRoute,
-      pictureBytes: pictureBytes ?? this.pictureBytes,
+      pictureBytes:
+          clearPictureBytes ? null : (pictureBytes ?? this.pictureBytes),
       rangeItems: rangeItems ?? this.rangeItems,
       usePicture: usePicture ?? this.usePicture,
       boardBackground: boardBackground ?? this.boardBackground,
+      contentType: contentType ?? this.contentType,
+      offerId: offerId ?? this.offerId,
+      mediaType: mediaType ?? this.mediaType,
+      mediaFile: mediaFile ?? this.mediaFile,
+      mediaFit: mediaFit ?? this.mediaFit,
+      mediaOpacity: mediaOpacity ?? this.mediaOpacity,
+      videoLoop: videoLoop ?? this.videoLoop,
+      videoMuted: videoMuted ?? this.videoMuted,
+      displayOrder: displayOrder ?? this.displayOrder,
+      displaySeconds: displaySeconds ?? this.displaySeconds,
+      borderTopWidth: borderTopWidth ?? this.borderTopWidth,
+      borderTopColor: borderTopColor ?? this.borderTopColor,
+      borderRightWidth: borderRightWidth ?? this.borderRightWidth,
+      borderRightColor: borderRightColor ?? this.borderRightColor,
+      borderBottomWidth: borderBottomWidth ?? this.borderBottomWidth,
+      borderBottomColor: borderBottomColor ?? this.borderBottomColor,
+      borderLeftWidth: borderLeftWidth ?? this.borderLeftWidth,
+      borderLeftColor: borderLeftColor ?? this.borderLeftColor,
     );
   }
+}
+
+enum ArrangementContentType {
+  menu,
+  offer;
+
+  static ArrangementContentType parse(String raw) {
+    switch (raw.trim().toUpperCase()) {
+      case 'OFFER':
+        return ArrangementContentType.offer;
+      case 'MENU':
+      default:
+        return ArrangementContentType.menu;
+    }
+  }
+
+  String get dbValue => switch (this) {
+        ArrangementContentType.menu => 'MENU',
+        ArrangementContentType.offer => 'OFFER',
+      };
+}
+
+enum ArrangementMediaType {
+  none,
+  image,
+  video;
+
+  static ArrangementMediaType parse(String raw) {
+    switch (raw.trim().toUpperCase()) {
+      case 'IMAGE':
+        return ArrangementMediaType.image;
+      case 'VIDEO':
+        return ArrangementMediaType.video;
+      case 'NONE':
+      default:
+        return ArrangementMediaType.none;
+    }
+  }
+
+  String get dbValue => switch (this) {
+        ArrangementMediaType.none => 'NONE',
+        ArrangementMediaType.image => 'IMAGE',
+        ArrangementMediaType.video => 'VIDEO',
+      };
+}
+
+enum ArrangementMediaFit {
+  cover,
+  contain,
+  stretch;
+
+  static ArrangementMediaFit parse(String raw) {
+    switch (raw.trim().toUpperCase()) {
+      case 'CONTAIN':
+        return ArrangementMediaFit.contain;
+      case 'STRETCH':
+        return ArrangementMediaFit.stretch;
+      case 'COVER':
+      default:
+        return ArrangementMediaFit.cover;
+    }
+  }
+
+  String get dbValue => switch (this) {
+        ArrangementMediaFit.cover => 'COVER',
+        ArrangementMediaFit.contain => 'CONTAIN',
+        ArrangementMediaFit.stretch => 'STRETCH',
+      };
 }

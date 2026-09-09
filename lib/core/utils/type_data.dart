@@ -59,4 +59,7 @@ class Utils {
       int.tryParse(str(v).split('.').first) ?? blobToInt(v) ?? fallback;
 
   static bool asFlag(dynamic v) => asInt(v, 0) != 0;
+
+  static double asDouble(dynamic v, [double fallback = 0]) =>
+      blobToDouble(v) ?? double.tryParse(str(v)) ?? fallback;
 }
