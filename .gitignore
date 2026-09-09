@@ -52,3 +52,16 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Windows installer (Inno Setup)
+/dist/**
+!/dist/.gitkeep
+/thirdparty/**
+!/thirdparty/README.md
+*.exe
+*.msi
+*.dmg
+*.apk
+*.aab
+*.ipa
+*.zip
