@@ -5,7 +5,7 @@
 [Setup]
 AppId={{a8c3e1f2-7b94-4d6e-9c21-5f0e8a4b2d71}
 AppName=Camaleon Billboard
-AppVersion=1.0.1
+AppVersion=1.0.2
 AppPublisher=Camaleon Systems Inc
 DefaultDirName={commonpf}\CamaleonBillboard
 DefaultGroupName=Camaleon Billboard
