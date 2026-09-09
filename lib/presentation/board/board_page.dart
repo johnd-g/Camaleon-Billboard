@@ -124,10 +124,10 @@ class _BoardPageState extends State<BoardPage> {
     final pictures = _withSelectedOnTop(board.pictures, (p) => p.arrangement.id);
     final sections =
         _withSelectedOnTop(board.sections, (s) => s.arrangement.id);
-    final bgPictures = [
-      for (final p in pictures)
-        if (p.arrangement.isBoardBackground) p,
-    ];
+    final bgPictures = board.boardBackgroundPictures;
+    // If DB has multiple bb_background=1, only paint the first and warn in UI.
+    final activeBgPictures =
+        bgPictures.length <= 1 ? bgPictures : bgPictures.take(1).toList();
     final fgPictures = [
       for (final p in pictures)
         if (!p.arrangement.isBoardBackground) p,
@@ -169,7 +169,7 @@ class _BoardPageState extends State<BoardPage> {
                           // One full-viewport fill — avoids "two backgrounds"
                           // (letterbox bars vs design canvas).
                           ColoredBox(color: bg),
-                          for (final pic in bgPictures)
+                          for (final pic in activeBgPictures)
                             Positioned.fill(
                               key: ValueKey('bg-${pic.arrangement.id}'),
                               child: editing
@@ -259,7 +259,7 @@ class _BoardPageState extends State<BoardPage> {
                                         section.arrangement.id,
                                       ),
                                       onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width) {
+                                      onCommit: (x, y, width, height) {
                                         c.commitArrangementGeometry(
                                           arrangementId:
                                               section.arrangement.id,
@@ -287,11 +287,14 @@ class _BoardPageState extends State<BoardPage> {
                                             40,
                                             _maxBlockWidth.toDouble(),
                                           ),
-                                      height: 320,
+                                      height:
+                                          pic.arrangement.pictureDisplayHeight,
                                       editing: editing,
                                       selected: _selectedId ==
                                           pic.arrangement.id,
                                       resizable: true,
+                                      minWidth: 80,
+                                      lockAspectHeight: true,
                                       contentRevision:
                                           '${pic.arrangement.maxWidth}-'
                                           '${pic.bytes?.length ?? 0}-'
@@ -300,19 +303,21 @@ class _BoardPageState extends State<BoardPage> {
                                         pic.arrangement.id,
                                       ),
                                       onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width) {
+                                      onCommit: (x, y, width, height) {
                                         c.commitArrangementGeometry(
                                           arrangementId:
                                               pic.arrangement.id,
                                           xDistance: x,
                                           yDistance: y,
                                           maxWidth: width.round(),
+                                          minWidth: 80,
                                           maxX: _maxPos,
                                           maxY: _maxPos,
                                         );
                                       },
                                       child: BillboardPicturePanel(
                                         block: pic,
+                                        fit: BoxFit.cover,
                                       ),
                                     ),
                                   if (board.sections.isEmpty &&
@@ -339,6 +344,42 @@ class _BoardPageState extends State<BoardPage> {
               ),
             ),
           ),
+          if (board.hasMultipleBoardBackgrounds)
+            Positioned(
+              left: 12,
+              right: sideEditor ? sideW + 12 : 12,
+              top: editing ? 72 : 12,
+              child: SafeArea(
+                bottom: false,
+                child: Material(
+                  color: const Color(0xEE7A4E00),
+                  borderRadius: BorderRadius.circular(12),
+                  elevation: 6,
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    child: Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded,
+                            color: Color(0xFFFFE7A3), size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Warning: more than one board background photo '
+                            '(bb_background=1). Only one is allowed.',
+                            style: TextStyle(
+                              color: Color(0xFFFFF4D6),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (editing)
             _EditChrome(
               selectedId: _selectedId,
@@ -394,7 +435,10 @@ class _BoardPageState extends State<BoardPage> {
                 final id = _selectedId;
                 if (id == null) return;
                 if (maxWidth != null) {
-                  c.resizeArrangement(arrangementId: id, maxWidth: maxWidth);
+                  c.resizeArrangement(
+                    arrangementId: id,
+                    maxWidth: maxWidth,
+                  );
                 }
                 c.updateArrangementStyle(
                   arrangementId: id,
@@ -445,7 +489,7 @@ class _BoardPageState extends State<BoardPage> {
                       ),
                       IconButton(
                         tooltip: 'Reload',
-                        onPressed: () => c.reloadSilent(),
+                        onPressed: () => c.reloadSilent(full: true),
                         icon: const Icon(Icons.refresh, color: Colors.white),
                       ),
                       IconButton(
@@ -489,7 +533,11 @@ class _BoardPageState extends State<BoardPage> {
       maxY = math.max(maxY, estimate.toDouble());
     }
     for (final p in board.pictures) {
-      maxY = math.max(maxY, (p.y + 320).toDouble());
+      if (p.arrangement.isBoardBackground) continue;
+      maxY = math.max(
+        maxY,
+        p.y + p.arrangement.pictureDisplayHeight,
+      );
     }
     return maxY + 80;
   }
@@ -576,6 +624,7 @@ class _EditChrome extends StatelessWidget {
       section: selectedSection,
       picture: selectedPicture,
       compact: !sidePanel,
+      multipleBoardBackgrounds: board.hasMultipleBoardBackgrounds,
       onPatch: onStylePatch,
     );
 
@@ -811,6 +860,8 @@ class _BoardBlock extends StatefulWidget {
     this.height,
     this.onDragStarted,
     this.resizable = false,
+    this.lockAspectHeight = false,
+    this.minWidth = 120,
     this.contentRevision = '',
   });
 
@@ -821,10 +872,13 @@ class _BoardBlock extends StatefulWidget {
   final bool editing;
   final bool selected;
   final bool resizable;
+  /// When true, displayed height = width × 0.75 (no DB height column).
+  final bool lockAspectHeight;
+  final double minWidth;
   final String contentRevision;
   final VoidCallback onSelect;
   final VoidCallback? onDragStarted;
-  final void Function(int x, int y, double width) onCommit;
+  final void Function(int x, int y, double width, double? height) onCommit;
   final Widget child;
 
   @override
@@ -838,6 +892,10 @@ class _BoardBlockState extends State<_BoardBlock> {
   bool _dragging = false;
   Widget? _cachedChild;
   String? _cachedRevision;
+
+  double get _height => widget.lockAspectHeight
+      ? _width * 0.75
+      : (widget.height ?? 0);
 
   @override
   void didUpdateWidget(covariant _BoardBlock oldWidget) {
@@ -863,18 +921,24 @@ class _BoardBlockState extends State<_BoardBlock> {
 
   void _commit() {
     _dragging = false;
-    widget.onCommit(_x.round(), _y.round(), _width);
+    widget.onCommit(
+      _x.round(),
+      _y.round(),
+      _width,
+      widget.lockAspectHeight || widget.height != null ? _height : null,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final content = _content();
+    final h = widget.lockAspectHeight || widget.height != null ? _height : null;
     if (!widget.editing) {
       return Positioned(
         left: _x,
         top: _y,
         width: _width,
-        height: widget.height,
+        height: h,
         child: content,
       );
     }
@@ -883,13 +947,12 @@ class _BoardBlockState extends State<_BoardBlock> {
       left: _x,
       top: _y,
       width: _width,
-      height: widget.height,
+      height: h,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onSelect,
         onPanStart: (_) {
           _dragging = true;
-          // Select after this frame — setState during panStart cancels the drag.
           final select = widget.onSelect;
           final dirty = widget.onDragStarted;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -899,7 +962,6 @@ class _BoardBlockState extends State<_BoardBlock> {
           });
         },
         onPanUpdate: (d) {
-          // Allow a little negative headroom so blocks can sit under the top bar.
           final nx = (_x + d.delta.dx).clamp(0.0, 100000.0).toDouble();
           final ny = (_y + d.delta.dy).clamp(-40.0, 100000.0).toDouble();
           if (nx == _x && ny == _y) return;
@@ -910,7 +972,6 @@ class _BoardBlockState extends State<_BoardBlock> {
         },
         onPanEnd: (_) => _commit(),
         onPanCancel: () {
-          // Don't commit a cancelled tiny pan as a move; just end drag flag.
           if (_dragging) _commit();
         },
         child: Stack(
@@ -918,7 +979,6 @@ class _BoardBlockState extends State<_BoardBlock> {
           children: [
             DecoratedBox(
               decoration: BoxDecoration(
-                // Border only while selected — never a tinted frame in play mode.
                 border: widget.selected
                     ? Border.all(color: CamaleonColors.green, width: 2.5)
                     : null,
@@ -971,8 +1031,9 @@ class _BoardBlockState extends State<_BoardBlock> {
                     widget.onDragStarted?.call();
                   },
                   onPanUpdate: (d) {
-                    final nw =
-                        (_width + d.delta.dx).clamp(120.0, 20000.0).toDouble();
+                    final nw = (_width + d.delta.dx)
+                        .clamp(widget.minWidth, 20000.0)
+                        .toDouble();
                     if (nw == _width) return;
                     setState(() => _width = nw);
                   },
@@ -982,9 +1043,9 @@ class _BoardBlockState extends State<_BoardBlock> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _ResizeHandle(),
+                        _ResizeHandle(horizontal: true),
                         SizedBox(height: 4),
-                        _ResizeLabel(),
+                        _ResizeLabel('Size'),
                       ],
                     ),
                   ),
@@ -998,13 +1059,15 @@ class _BoardBlockState extends State<_BoardBlock> {
 }
 
 class _ResizeHandle extends StatelessWidget {
-  const _ResizeHandle();
+  const _ResizeHandle({required this.horizontal});
+
+  final bool horizontal;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 22,
-      height: 44,
+      width: horizontal ? 22 : 44,
+      height: horizontal ? 44 : 22,
       decoration: BoxDecoration(
         color: CamaleonColors.green,
         borderRadius: BorderRadius.circular(8),
@@ -1015,8 +1078,8 @@ class _ResizeHandle extends StatelessWidget {
           ),
         ],
       ),
-      child: const Icon(
-        Icons.swap_horiz_rounded,
+      child: Icon(
+        horizontal ? Icons.open_in_full_rounded : Icons.swap_vert_rounded,
         size: 16,
         color: Colors.white,
       ),
@@ -1025,7 +1088,9 @@ class _ResizeHandle extends StatelessWidget {
 }
 
 class _ResizeLabel extends StatelessWidget {
-  const _ResizeLabel();
+  const _ResizeLabel(this.text);
+
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -1035,9 +1100,9 @@ class _ResizeLabel extends StatelessWidget {
         color: Colors.black87,
         borderRadius: BorderRadius.circular(4),
       ),
-      child: const Text(
-        'Width',
-        style: TextStyle(
+      child: Text(
+        text,
+        style: const TextStyle(
           color: Colors.white,
           fontSize: 9,
           fontWeight: FontWeight.w700,

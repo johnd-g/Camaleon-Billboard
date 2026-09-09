@@ -73,6 +73,15 @@ class BillboardBoard {
   final List<PictureBlock> pictures;
   final int mainBackColor;
 
+  List<PictureBlock> get boardBackgroundPictures => [
+        for (final p in pictures)
+          if (p.arrangement.isBoardBackground) p,
+      ];
+
+  /// More than one `bb_background=1` — invalid; UI should warn.
+  bool get hasMultipleBoardBackgrounds =>
+      boardBackgroundPictures.length > 1;
+
   BillboardBoard copyWith({
     String? compName,
     List<MenuSection>? sections,

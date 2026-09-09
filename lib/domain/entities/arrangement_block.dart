@@ -31,6 +31,7 @@ class ArrangementBlock {
     this.pictureBytes,
     this.rangeItems = '',
     this.usePicture = false,
+    this.boardBackground = false,
   });
 
   final int id;
@@ -63,17 +64,18 @@ class ArrangementBlock {
   final String rangeItems;
   final bool usePicture;
 
+  /// `bb_arrangement.bb_background` — full-bleed board image (only one should be set).
+  final bool boardBackground;
+
   bool get hasPicture =>
       (pictureBytes != null && pictureBytes!.isNotEmpty) ||
       pictureRoute.isNotEmpty;
 
-  /// Convention: `detaildesc` contains BACKGROUND → full-board image behind menu.
-  bool get isBoardBackground {
-    final d = detailDescription.trim().toUpperCase();
-    return d == 'BACKGROUND' || d.startsWith('BACKGROUND');
-  }
+  bool get isBoardBackground => boardBackground;
 
-  static const backgroundDetailTag = 'BACKGROUND';
+  /// Display height for foreground photos (no DB height column — follows width).
+  double get pictureDisplayHeight =>
+      maxWidth.toDouble().clamp(40, 20000) * 0.75;
 
   /// Parses Classic `range_items` as `offset-count` for MySQL LIMIT.
   (int? offset, int? count) get rangeLimit {
@@ -114,6 +116,7 @@ class ArrangementBlock {
     Uint8List? pictureBytes,
     String? rangeItems,
     bool? usePicture,
+    bool? boardBackground,
   }) {
     return ArrangementBlock(
       id: id ?? this.id,
@@ -144,6 +147,7 @@ class ArrangementBlock {
       pictureBytes: pictureBytes ?? this.pictureBytes,
       rangeItems: rangeItems ?? this.rangeItems,
       usePicture: usePicture ?? this.usePicture,
+      boardBackground: boardBackground ?? this.boardBackground,
     );
   }
 }

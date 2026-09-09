@@ -86,6 +86,7 @@ class BillboardRepositoryImpl implements BillboardRepository {
       pictureBytes: Utils.asBytes(row['bb_pic']),
       rangeItems: Utils.str(row['range_items']),
       usePicture: Utils.asFlag(row['usepic']),
+      boardBackground: Utils.asFlag(row['bb_background']),
     );
   }
 
@@ -102,13 +103,31 @@ class BillboardRepositoryImpl implements BillboardRepository {
     final limitSql =
         (offset != null && count != null) ? ' LIMIT $offset, $count' : '';
 
+    // Active happy-hour / date specials (same tables POS 2.0 uses).
+    final specialIds = await _activeSpecialIds();
+    final priceExpr = specialIds.isEmpty
+        ? 'it_titem.ITEM_Sale_Price'
+        : '''COALESCE(
+  (
+    SELECT ds.item_price
+    FROM day_specials ds
+    WHERE ds.PR_ID IN ($specialIds)
+      AND ds.item_id = it_titem.ITEM_ID
+      AND IFNULL(ds.item_dis, 0) <> 1
+      AND IFNULL(ds.class_dis, 0) <> 1
+    ORDER BY ds.PR_ID ASC
+    LIMIT 1
+  ),
+  it_titem.ITEM_Sale_Price
+)''';
+
     final sql = '''
 SELECT
   it_titemclass.Class_Name,
   it_titem.ITEM_ID,
   it_titem.ITEM_Description,
   it_titem.ITEM_Screen_Name,
-  it_titem.ITEM_Sale_Price,
+  $priceExpr AS ITEM_Sale_Price,
   it_titem.desc_atmenu,
   it_titem.Prioridad
 FROM it_titemclass
@@ -154,6 +173,40 @@ ORDER BY $orderBy$limitSql
     );
   }
 
+  /// Comma-separated active `dates_special.Id` values, or empty if none / tables missing.
+  Future<String> _activeSpecialIds() async {
+    try {
+      final rows = await _client.query('''
+SELECT ds.Id
+FROM dates_special ds
+WHERE IFNULL(ds.inactive, 0) = 0
+  AND NOW() BETWEEN ds.DateIn AND ds.DateOut
+  AND (
+    (DAYOFWEEK(NOW()) = 1 AND IFNULL(ds.SUON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 2 AND IFNULL(ds.MOON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 3 AND IFNULL(ds.TUON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 4 AND IFNULL(ds.WEON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 5 AND IFNULL(ds.THON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 6 AND IFNULL(ds.FRON, 0) = 1) OR
+    (DAYOFWEEK(NOW()) = 7 AND IFNULL(ds.SAON, 0) = 1)
+  )
+  AND (
+    TIME(ds.DateOut) < TIME(ds.DateIn)
+    OR TIME(NOW()) BETWEEN TIME(ds.DateIn) AND TIME(ds.DateOut)
+  )
+ORDER BY ds.DateOut ASC
+''');
+      final ids = <String>[];
+      for (final row in rows) {
+        final id = Utils.asInt(row['Id']);
+        if (id > 0) ids.add('$id');
+      }
+      return ids.join(',');
+    } catch (_) {
+      return '';
+    }
+  }
+
   @override
   Future<BillboardBoard> loadBoard({
     required String compName,
@@ -191,6 +244,26 @@ ORDER BY $orderBy$limitSql
       pictures: pictures,
       mainBackColor: mainBg,
     );
+  }
+
+  @override
+  Future<BillboardBoard> refreshMenuItems(
+    BillboardBoard current, {
+    required bool sortAlphabetical,
+  }) async {
+    final sections = <MenuSection>[];
+    for (final section in current.sections) {
+      try {
+        final next = await fillClassView(
+          section.arrangement,
+          sortAlphabetical: sortAlphabetical,
+        );
+        sections.add(next);
+      } catch (_) {
+        sections.add(section);
+      }
+    }
+    return current.copyWith(sections: sections);
   }
 
   @override
@@ -304,7 +377,7 @@ INSERT INTO $_table (
   classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
   modfsize, modfname, modfcolor,
   pricefname, pricefsize, pricefcolor,
-  detaildesc, bbpic_route, bb_pic, range_items, usepic
+  detaildesc, bbpic_route, bb_pic, range_items, usepic, bb_background
 ) VALUES (
   ?, ?, ?, ?, ?, ?,
   ?, ?, ?, ?,
@@ -312,7 +385,7 @@ INSERT INTO $_table (
   ?, ?, ?, ?, ?,
   ?, ?, ?,
   ?, ?, ?,
-  ?, ?, ?, ?, ?
+  ?, ?, ?, ?, ?, ?
 )
 ''',
         [
@@ -362,6 +435,7 @@ INSERT INTO $_table (
           Utils.asBytes(f['bb_pic']),
           Utils.str(f['range_items']),
           Utils.asFlag(f['usepic']) ? 1 : 0,
+          Utils.asFlag(f['bb_background']) ? 1 : 0,
         ],
       );
       count++;
@@ -401,7 +475,8 @@ UPDATE $_table SET
   modfsize = ?,
   modfname = ?,
   modfcolor = ?,
-  detaildesc = ?
+  detaildesc = ?,
+  bb_background = ?
 WHERE ID = ? AND comp_name = ?
 ''',
       [
@@ -425,6 +500,7 @@ WHERE ID = ? AND comp_name = ?
         a.modifierFontName,
         '${QbColors.clampOpaque(a.modifierColor)}',
         a.detailDescription,
+        a.boardBackground ? 1 : 0,
         id,
         name,
       ],

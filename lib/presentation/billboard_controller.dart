@@ -60,7 +60,7 @@ class BillboardController extends ChangeNotifier {
   String computerName = '';
   String detectedComputerName = '';
   bool sortAlphabetical = false;
-  int refreshSeconds = 60;
+  int refreshSeconds = 5;
   String? errorMessage;
   BillboardBoard? board;
   bool testing = false;
@@ -82,6 +82,8 @@ class BillboardController extends ChangeNotifier {
   bool savingLayout = false;
 
   Timer? _refreshTimer;
+  bool _reloadInFlight = false;
+  int _pollTick = 0;
 
   /// First launch: always show DB settings (prefill shared file if found).
   /// Returning users with saved MySQL prefs: auto-connect.
@@ -539,18 +541,33 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> reloadSilent() async {
+  Future<void> reloadSilent({bool full = false}) async {
     if (phase != BillboardPhase.ready) return;
-    if (layoutEditing || layoutDirty) return;
+    if (layoutEditing || layoutDirty || savingLayout) return;
+    if (_reloadInFlight) return;
+    _reloadInFlight = true;
     try {
-      final next = await _loadBoard(
-        compName: computerName,
-        sortAlphabetical: sortAlphabetical,
-      );
+      final current = board;
+      final BillboardBoard next;
+      if (full || current == null) {
+        next = await _loadBoard(
+          compName: computerName,
+          sortAlphabetical: sortAlphabetical,
+        );
+      } else {
+        // Light poll: prices / names / specials only — no bb_pic blobs.
+        next = await _billboardRepo.refreshMenuItems(
+          current,
+          sortAlphabetical: sortAlphabetical,
+        );
+      }
+      if (layoutEditing || layoutDirty || savingLayout) return;
       board = next;
       notifyListeners();
     } catch (e) {
       if (kDebugMode) debugPrint('Silent reload failed: $e');
+    } finally {
+      _reloadInFlight = false;
     }
   }
 
@@ -575,7 +592,7 @@ class BillboardController extends ChangeNotifier {
     layoutDirty = false;
     savingLayout = false;
     notifyListeners();
-    await reloadSilent();
+    await reloadSilent(full: true);
     if (phase == BillboardPhase.ready) _scheduleRefresh();
   }
 
@@ -585,6 +602,7 @@ class BillboardController extends ChangeNotifier {
     int? xDistance,
     int? yDistance,
     int? maxWidth,
+    int minWidth = 120,
     int maxX = 100000,
     int maxY = 100000,
   }) {
@@ -592,6 +610,7 @@ class BillboardController extends ChangeNotifier {
     if (b == null || !layoutEditing) return;
     final xCap = maxX < 0 ? 0 : maxX;
     final yCap = maxY < 0 ? 0 : maxY;
+    final wMin = minWidth.clamp(40, 20000);
 
     var changed = false;
 
@@ -601,7 +620,7 @@ class BillboardController extends ChangeNotifier {
       final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
       final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
       final nw =
-          maxWidth == null ? a.maxWidth : maxWidth.clamp(120, 20000);
+          maxWidth == null ? a.maxWidth : maxWidth.clamp(wMin, 20000);
       if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
         return s;
       }
@@ -620,10 +639,18 @@ class BillboardController extends ChangeNotifier {
       final a = p.arrangement;
       final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
       final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
-      if (nx == a.xDistance && ny == a.yDistance) return p;
+      final nw =
+          maxWidth == null ? a.maxWidth : maxWidth.clamp(wMin, 20000);
+      if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
+        return p;
+      }
       changed = true;
       return p.copyWith(
-        arrangement: a.copyWith(xDistance: nx, yDistance: ny),
+        arrangement: a.copyWith(
+          xDistance: nx,
+          yDistance: ny,
+          maxWidth: nw,
+        ),
       );
     }).toList(growable: false);
 
@@ -636,10 +663,12 @@ class BillboardController extends ChangeNotifier {
   void resizeArrangement({
     required int arrangementId,
     required int maxWidth,
+    int minWidth = 80,
   }) {
     commitArrangementGeometry(
       arrangementId: arrangementId,
       maxWidth: maxWidth,
+      minWidth: minWidth,
     );
   }
 
@@ -740,16 +769,15 @@ class BillboardController extends ChangeNotifier {
         next = next.copyWith(modifierFontName: modifierFontName);
       }
       if (boardBackground != null) {
-        next = next.copyWith(
-          detailDescription: boardBackground
-              ? ArrangementBlock.backgroundDetailTag
-              : (next.isBoardBackground ? '' : next.detailDescription),
-        );
+        next = next.copyWith(boardBackground: boardBackground);
       } else if (detailDescription != null) {
         next = next.copyWith(detailDescription: detailDescription);
       }
       return next;
     }
+
+    // Only one photo may be board background — turning one on clears the rest.
+    final clearOtherBackgrounds = boardBackground == true;
 
     board = b.copyWith(
       sections: [
@@ -769,6 +797,10 @@ class BillboardController extends ChangeNotifier {
         for (final p in b.pictures)
           if (p.arrangement.id == arrangementId)
             p.copyWith(arrangement: patch(p.arrangement))
+          else if (clearOtherBackgrounds && p.arrangement.boardBackground)
+            p.copyWith(
+              arrangement: p.arrangement.copyWith(boardBackground: false),
+            )
           else if (mainBackColor != null)
             p.copyWith(
               arrangement: p.arrangement.copyWith(
@@ -855,9 +887,18 @@ class BillboardController extends ChangeNotifier {
   void _scheduleRefresh() {
     _refreshTimer?.cancel();
     if (layoutEditing) return;
+    _pollTick = 0;
+    // Menu prices/specials every 5s; full board (layout + pics) less often.
+    final interval = refreshSeconds.clamp(5, 3600);
     _refreshTimer = Timer.periodic(
-      Duration(seconds: refreshSeconds),
-      (_) => reloadSilent(),
+      Duration(seconds: interval),
+      (_) {
+        if (layoutEditing || layoutDirty || savingLayout) return;
+        _pollTick++;
+        // Every ~60s worth of ticks, do a full reload; otherwise items only.
+        final ticksForFull = (60 / interval).ceil().clamp(1, 120);
+        reloadSilent(full: _pollTick % ticksForFull == 0);
+      },
     );
   }
 

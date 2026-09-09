@@ -19,8 +19,15 @@ abstract class BillboardRepository {
     required bool sortAlphabetical,
   });
 
+  /// Full board load (menus + pictures with blobs).
   Future<BillboardBoard> loadBoard({
     required String compName,
+    required bool sortAlphabetical,
+  });
+
+  /// Refresh item names/prices/descriptions only — keeps picture blobs in memory.
+  Future<BillboardBoard> refreshMenuItems(
+    BillboardBoard current, {
     required bool sortAlphabetical,
   });
 

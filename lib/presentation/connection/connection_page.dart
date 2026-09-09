@@ -153,7 +153,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     });
     await c.savePreferences(
       alphabetical: _alpha,
-      refresh: int.tryParse(_refresh.text.trim()) ?? 60,
+      refresh: int.tryParse(_refresh.text.trim()) ?? 5,
     );
     c.templateCompName = _templateComp;
 

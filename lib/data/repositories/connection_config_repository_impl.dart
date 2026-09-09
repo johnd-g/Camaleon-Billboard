@@ -77,13 +77,13 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   @override
   Future<int> loadRefreshSeconds() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_kRefresh) ?? 60;
+    return prefs.getInt(_kRefresh) ?? 5;
   }
 
   @override
   Future<void> saveRefreshSeconds(int seconds) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kRefresh, seconds.clamp(10, 3600));
+    await prefs.setInt(_kRefresh, seconds.clamp(5, 3600));
   }
 
   @override

@@ -37,6 +37,7 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.section,
     this.picture,
     this.compact = false,
+    this.multipleBoardBackgrounds = false,
   });
 
   final int boardMainBackColor;
@@ -45,6 +46,7 @@ class ArrangementStyleEditor extends StatelessWidget {
   final MenuSection? section;
   final PictureBlock? picture;
   final bool compact;
+  final bool multipleBoardBackgrounds;
 
   @override
   Widget build(BuildContext context) {
@@ -63,11 +65,41 @@ class ArrangementStyleEditor extends StatelessWidget {
                 value: boardMainBackColor,
                 onChanged: onBoardBackgroundColor,
               ),
+              if (multipleBoardBackgrounds) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0x33F59E0B),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0x99F59E0B)),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
+                          color: Color(0xFFFBBF24), size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'More than one photo is marked as board background. '
+                          'Only one is allowed — turn the extras off.',
+                          style: TextStyle(
+                            color: Color(0xFFFFE7A3),
+                            fontSize: 12,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (picture == null) ...[
                 const SizedBox(height: 10),
                 Text(
                   a == null
-                      ? 'Tap a photo, then turn on “Fill whole board” for an image backdrop.'
+                      ? 'Tap a photo, then turn on “Fill whole board”.'
                       : 'Want a photo behind everything? Tap a photo on the board first.',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.5),
