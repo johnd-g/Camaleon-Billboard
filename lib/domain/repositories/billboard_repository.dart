@@ -43,14 +43,10 @@ abstract class BillboardRepository {
     String? templateCompName,
   });
 
-  /// Persists layout fields for one arrangement row belonging to [compName].
+  /// Persists layout + style fields for one arrangement row.
   Future<void> updateArrangementLayout({
     required int id,
     required String compName,
-    required int xDistance,
-    required int yDistance,
-    required int maxWidth,
-    int? classFontSize,
-    int? itemFontSize,
+    required ArrangementBlock arrangement,
   });
 }

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 class QbColors {
   QbColors._();
 
+  /// Not a Classic QBColor — Flutter-only clear fill (shows board image through).
+  static const int transparentIndex = -1;
+
   static const List<Color> palette = <Color>[
     Color(0xFF000000), // 0 black
     Color(0xFF000080), // 1 blue
@@ -23,11 +26,24 @@ class QbColors {
     Color(0xFFFFFFFF), // 15 bright white
   ];
 
-  static Color of(int index) =>
-      palette[index.clamp(0, palette.length - 1)];
+  static bool isTransparent(int index) => index == transparentIndex;
 
-  static Color onColor(int index) =>
-      ThemeData.estimateBrightnessForColor(of(index)) == Brightness.dark
-          ? Colors.white
-          : Colors.black;
+  static Color of(int index) {
+    if (isTransparent(index)) return Colors.transparent;
+    return palette[index.clamp(0, palette.length - 1)];
+  }
+
+  static int clampFill(int index) {
+    if (isTransparent(index)) return transparentIndex;
+    return index.clamp(0, palette.length - 1);
+  }
+
+  static int clampOpaque(int index) => index.clamp(0, palette.length - 1);
+
+  static Color onColor(int index) {
+    if (isTransparent(index)) return Colors.white;
+    return ThemeData.estimateBrightnessForColor(of(index)) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
+  }
 }

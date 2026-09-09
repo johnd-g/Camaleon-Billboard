@@ -7,8 +7,10 @@ import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
 import 'package:camaleon_billboard/core/db/lan_mysql_discovery.dart';
 import 'package:camaleon_billboard/core/db/mysql_client.dart';
 import 'package:camaleon_billboard/core/utils/device_identity.dart';
+import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/data/repositories/billboard_repository_impl.dart';
 import 'package:camaleon_billboard/data/repositories/connection_config_repository_impl.dart';
+import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/domain/repositories/billboard_repository.dart';
@@ -646,31 +648,166 @@ class BillboardController extends ChangeNotifier {
     int classDelta = 0,
     int itemDelta = 0,
   }) {
+    updateArrangementStyle(
+      arrangementId: arrangementId,
+      classFontDelta: classDelta,
+      itemFontDelta: itemDelta,
+    );
+  }
+
+  /// Patch style fields on one section/picture arrangement.
+  void updateArrangementStyle({
+    required int arrangementId,
+    int? classFontDelta,
+    int? itemFontDelta,
+    int? classFontSize,
+    int? itemFontSize,
+    int? modifierFontSize,
+    int? classForeColor,
+    int? classBackColor,
+    int? itemForeColor,
+    int? itemBackColor,
+    int? mainBackColor,
+    int? modifierColor,
+    bool? classBold,
+    bool? itemBold,
+    bool? classUpperCase,
+    bool? itemUpperCase,
+    String? classFontName,
+    String? itemFontName,
+    String? modifierFontName,
+    String? detailDescription,
+    bool? boardBackground,
+  }) {
     final b = board;
     if (b == null || !layoutEditing) return;
-    if (classDelta == 0 && itemDelta == 0) return;
+
+    ArrangementBlock patch(ArrangementBlock a) {
+      var next = a;
+      if (classFontDelta != null) {
+        next = next.copyWith(
+          classFontSize: (next.classFontSize + classFontDelta).clamp(10, 96),
+        );
+      }
+      if (itemFontDelta != null) {
+        next = next.copyWith(
+          itemFontSize: (next.itemFontSize + itemFontDelta).clamp(8, 72),
+        );
+      }
+      if (classFontSize != null) {
+        next = next.copyWith(classFontSize: classFontSize.clamp(10, 96));
+      }
+      if (itemFontSize != null) {
+        next = next.copyWith(itemFontSize: itemFontSize.clamp(8, 72));
+      }
+      if (modifierFontSize != null) {
+        next =
+            next.copyWith(modifierFontSize: modifierFontSize.clamp(8, 48));
+      }
+      if (classForeColor != null) {
+        next = next.copyWith(classForeColor: QbColors.clampOpaque(classForeColor));
+      }
+      if (classBackColor != null) {
+        next = next.copyWith(classBackColor: QbColors.clampFill(classBackColor));
+      }
+      if (itemForeColor != null) {
+        next = next.copyWith(itemForeColor: QbColors.clampOpaque(itemForeColor));
+      }
+      if (itemBackColor != null) {
+        next = next.copyWith(itemBackColor: QbColors.clampFill(itemBackColor));
+      }
+      if (mainBackColor != null) {
+        next = next.copyWith(mainBackColor: QbColors.clampOpaque(mainBackColor));
+      }
+      if (modifierColor != null) {
+        next = next.copyWith(modifierColor: QbColors.clampOpaque(modifierColor));
+      }
+      if (classBold != null) next = next.copyWith(classBold: classBold);
+      if (itemBold != null) next = next.copyWith(itemBold: itemBold);
+      if (classUpperCase != null) {
+        next = next.copyWith(classUpperCase: classUpperCase);
+      }
+      if (itemUpperCase != null) {
+        next = next.copyWith(itemUpperCase: itemUpperCase);
+      }
+      if (classFontName != null) {
+        next = next.copyWith(classFontName: classFontName);
+      }
+      if (itemFontName != null) {
+        next = next.copyWith(itemFontName: itemFontName);
+      }
+      if (modifierFontName != null) {
+        next = next.copyWith(modifierFontName: modifierFontName);
+      }
+      if (boardBackground != null) {
+        next = next.copyWith(
+          detailDescription: boardBackground
+              ? ArrangementBlock.backgroundDetailTag
+              : (next.isBoardBackground ? '' : next.detailDescription),
+        );
+      } else if (detailDescription != null) {
+        next = next.copyWith(detailDescription: detailDescription);
+      }
+      return next;
+    }
 
     board = b.copyWith(
       sections: [
         for (final s in b.sections)
           if (s.arrangement.id == arrangementId)
+            s.copyWith(arrangement: patch(s.arrangement))
+          else if (mainBackColor != null)
             s.copyWith(
               arrangement: s.arrangement.copyWith(
-                classFontSize:
-                    (s.arrangement.classFontSize + classDelta).clamp(10, 96),
-                itemFontSize:
-                    (s.arrangement.itemFontSize + itemDelta).clamp(8, 72),
+                mainBackColor: mainBackColor.clamp(0, 15),
               ),
             )
           else
             s,
+      ],
+      pictures: [
+        for (final p in b.pictures)
+          if (p.arrangement.id == arrangementId)
+            p.copyWith(arrangement: patch(p.arrangement))
+          else if (mainBackColor != null)
+            p.copyWith(
+              arrangement: p.arrangement.copyWith(
+                mainBackColor: mainBackColor.clamp(0, 15),
+              ),
+            )
+          else
+            p,
+      ],
+      mainBackColor: mainBackColor?.clamp(0, 15) ?? b.mainBackColor,
+    );
+    layoutDirty = true;
+    notifyListeners();
+  }
+
+  void setBoardBackgroundColor(int qbIndex) {
+    final b = board;
+    if (b == null || !layoutEditing) return;
+    final color = qbIndex.clamp(0, 15);
+    board = b.copyWith(
+      mainBackColor: color,
+      sections: [
+        for (final s in b.sections)
+          s.copyWith(
+            arrangement: s.arrangement.copyWith(mainBackColor: color),
+          ),
+      ],
+      pictures: [
+        for (final p in b.pictures)
+          p.copyWith(
+            arrangement: p.arrangement.copyWith(mainBackColor: color),
+          ),
       ],
     );
     layoutDirty = true;
     notifyListeners();
   }
 
-  /// Writes current section/picture positions to `bb_arrangement` for this device.
+  /// Writes current section/picture positions + styles to `bb_arrangement`.
   Future<bool> saveLayoutEdits() async {
     final b = board;
     if (b == null || !layoutDirty) {
@@ -687,25 +824,17 @@ class BillboardController extends ChangeNotifier {
     try {
       final name = computerName.trim();
       for (final s in b.sections) {
-        final a = s.arrangement;
         await _billboardRepo.updateArrangementLayout(
-          id: a.id,
+          id: s.arrangement.id,
           compName: name,
-          xDistance: a.xDistance,
-          yDistance: a.yDistance,
-          maxWidth: a.maxWidth,
-          classFontSize: a.classFontSize,
-          itemFontSize: a.itemFontSize,
+          arrangement: s.arrangement.copyWith(mainBackColor: b.mainBackColor),
         );
       }
       for (final p in b.pictures) {
-        final a = p.arrangement;
         await _billboardRepo.updateArrangementLayout(
-          id: a.id,
+          id: p.arrangement.id,
           compName: name,
-          xDistance: a.xDistance,
-          yDistance: a.yDistance,
-          maxWidth: a.maxWidth,
+          arrangement: p.arrangement.copyWith(mainBackColor: b.mainBackColor),
         );
       }
       layoutDirty = false;

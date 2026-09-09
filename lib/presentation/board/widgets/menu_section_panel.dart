@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:camaleon_billboard/core/utils/board_fonts.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
@@ -18,31 +19,33 @@ class MenuSectionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = section.arrangement;
-    final bg = a.itemBackColor == 0
-        ? const Color.fromARGB(255, 1, 1, 1)
-        : QbColors.of(a.itemBackColor);
-
     return ColoredBox(
-      color: bg,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _ClassHeader(arrangement: a, title: section.className),
-            const SizedBox(height: 4),
-            for (final item in section.items) ...[
-              _ItemRow(
-                arrangement: a,
-                name: item.name,
-                price: _currency.format(item.price),
-              ),
-              if (item.description.trim().isNotEmpty)
-                _DescRow(arrangement: a, text: item.description),
-            ],
-          ],
-        ),
+      color: QbColors.of(a.itemBackColor),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Full-bleed header — no side padding (avoids a “border” from item fill).
+          _ClassHeader(arrangement: a, title: section.className),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final item in section.items) ...[
+                  _ItemRow(
+                    arrangement: a,
+                    name: item.name,
+                    price: _currency.format(item.price),
+                  ),
+                  if (item.description.trim().isNotEmpty)
+                    _DescRow(arrangement: a, text: item.description),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -57,6 +60,15 @@ class _ClassHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = arrangement;
+    final style = BoardFonts.apply(
+      a.classFontName,
+      TextStyle(
+        color: QbColors.of(a.classForeColor),
+        fontSize: a.classFontSize.toDouble(),
+        fontWeight: a.classBold ? FontWeight.w800 : FontWeight.w700,
+        letterSpacing: 1.1,
+      ),
+    );
     return ColoredBox(
       color: QbColors.of(a.classBackColor),
       child: Padding(
@@ -64,13 +76,7 @@ class _ClassHeader extends StatelessWidget {
         child: Text(
           title,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: QbColors.of(a.classForeColor),
-            fontSize: a.classFontSize.toDouble(),
-            fontWeight: a.classBold ? FontWeight.w800 : FontWeight.w700,
-            fontFamily: a.classFontName.isEmpty ? null : a.classFontName,
-            letterSpacing: 1.1,
-          ),
+          style: style,
         ),
       ),
     );
@@ -91,12 +97,14 @@ class _ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = arrangement;
-    final style = TextStyle(
-      color: QbColors.of(a.itemForeColor),
-      fontSize: a.itemFontSize.toDouble(),
-      fontWeight: a.itemBold ? FontWeight.w700 : FontWeight.w500,
-      fontFamily: a.itemFontName.isEmpty ? null : a.itemFontName,
-      height: 1.15,
+    final style = BoardFonts.apply(
+      a.itemFontName,
+      TextStyle(
+        color: QbColors.of(a.itemForeColor),
+        fontSize: a.itemFontSize.toDouble(),
+        fontWeight: a.itemBold ? FontWeight.w700 : FontWeight.w500,
+        height: 1.15,
+      ),
     );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -121,41 +129,77 @@ class _DescRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final a = arrangement;
+    final style = BoardFonts.apply(
+      a.modifierFontName,
+      TextStyle(
+        color: QbColors.of(a.modifierColor),
+        fontSize: a.modifierFontSize.toDouble().clamp(8, 48),
+        fontStyle: FontStyle.italic,
+        height: 1.2,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 4, right: 48),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: QbColors.of(a.modifierColor),
-          fontSize: a.modifierFontSize.toDouble().clamp(8, 48),
-          fontStyle: FontStyle.italic,
-          fontFamily: a.modifierFontName.isEmpty ? null : a.modifierFontName,
-          height: 1.2,
-        ),
-      ),
+      child: Text(text, style: style),
     );
   }
 }
 
 class BillboardPicturePanel extends StatelessWidget {
-  const BillboardPicturePanel({super.key, required this.block});
+  const BillboardPicturePanel({
+    super.key,
+    required this.block,
+    this.fit = BoxFit.contain,
+  });
 
   final PictureBlock block;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
+    final bytes = block.bytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return Image.memory(
+        bytes,
+        fit: fit,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+        errorBuilder: _err,
+      );
+    }
+
     final path = block.route;
-    if (path.isEmpty) return const SizedBox.shrink();
+    if (path.isEmpty) {
+      return const ColoredBox(
+        color: Color(0x33000000),
+        child: Center(
+          child: Icon(Icons.image_outlined, color: Colors.white54, size: 40),
+        ),
+      );
+    }
 
     if (path.startsWith('http://') || path.startsWith('https://')) {
-      return Image.network(path, fit: BoxFit.contain, errorBuilder: _err);
+      return Image.network(
+        path,
+        fit: fit,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: _err,
+      );
     }
 
     final file = File(path);
     if (!file.existsSync()) {
       return _MissingPic(path: path);
     }
-    return Image.file(file, fit: BoxFit.contain, errorBuilder: _err);
+    return Image.file(
+      file,
+      fit: fit,
+      width: double.infinity,
+      height: double.infinity,
+      errorBuilder: _err,
+    );
   }
 
   Widget _err(BuildContext context, Object error, StackTrace? stackTrace) =>

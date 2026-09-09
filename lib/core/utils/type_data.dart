@@ -12,6 +12,33 @@ class Utils {
     return value.toString();
   }
 
+  static Uint8List? asBytes(dynamic value) {
+    if (value == null) return null;
+    if (value is Uint8List) {
+      return value.isEmpty ? null : value;
+    }
+    if (value is List<int>) {
+      if (value.isEmpty) return null;
+      return Uint8List.fromList(value);
+    }
+    // mysql1 returns LONGBLOB as Blob with toBytes().
+    try {
+      final dynamic raw = value;
+      final bytes = raw.toBytes();
+      if (bytes is Uint8List) {
+        return bytes.isEmpty ? null : bytes;
+      }
+      if (bytes is List<int>) {
+        if (bytes.isEmpty) return null;
+        return Uint8List.fromList(bytes);
+      }
+    } catch (_) {}
+    if (value is String && value.isNotEmpty) {
+      return Uint8List.fromList(value.codeUnits);
+    }
+    return null;
+  }
+
   static int? blobToInt(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;

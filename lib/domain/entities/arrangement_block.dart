@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// One row of `bb_arrangement` — mirrors POS [BillboardScreenConfig].
 class ArrangementBlock {
   const ArrangementBlock({
@@ -26,6 +28,7 @@ class ArrangementBlock {
     this.modifierColor = 0,
     this.detailDescription = '',
     this.pictureRoute = '',
+    this.pictureBytes,
     this.rangeItems = '',
     this.usePicture = false,
   });
@@ -55,8 +58,22 @@ class ArrangementBlock {
   final int modifierColor;
   final String detailDescription;
   final String pictureRoute;
+  /// Raw image from `bb_arrangement.bb_pic` (LONGBLOB). Preferred over [pictureRoute].
+  final Uint8List? pictureBytes;
   final String rangeItems;
   final bool usePicture;
+
+  bool get hasPicture =>
+      (pictureBytes != null && pictureBytes!.isNotEmpty) ||
+      pictureRoute.isNotEmpty;
+
+  /// Convention: `detaildesc` contains BACKGROUND → full-board image behind menu.
+  bool get isBoardBackground {
+    final d = detailDescription.trim().toUpperCase();
+    return d == 'BACKGROUND' || d.startsWith('BACKGROUND');
+  }
+
+  static const backgroundDetailTag = 'BACKGROUND';
 
   /// Parses Classic `range_items` as `offset-count` for MySQL LIMIT.
   (int? offset, int? count) get rangeLimit {
@@ -94,6 +111,7 @@ class ArrangementBlock {
     int? modifierColor,
     String? detailDescription,
     String? pictureRoute,
+    Uint8List? pictureBytes,
     String? rangeItems,
     bool? usePicture,
   }) {
@@ -123,6 +141,7 @@ class ArrangementBlock {
       modifierColor: modifierColor ?? this.modifierColor,
       detailDescription: detailDescription ?? this.detailDescription,
       pictureRoute: pictureRoute ?? this.pictureRoute,
+      pictureBytes: pictureBytes ?? this.pictureBytes,
       rangeItems: rangeItems ?? this.rangeItems,
       usePicture: usePicture ?? this.usePicture,
     );

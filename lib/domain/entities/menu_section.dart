@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 
 class MenuItemEntity {
@@ -48,6 +50,8 @@ class PictureBlock {
   final ArrangementBlock arrangement;
 
   String get route => arrangement.pictureRoute;
+  Uint8List? get bytes => arrangement.pictureBytes;
+  bool get hasImage => arrangement.hasPicture;
   int get x => arrangement.xDistance;
   int get y => arrangement.yDistance;
 

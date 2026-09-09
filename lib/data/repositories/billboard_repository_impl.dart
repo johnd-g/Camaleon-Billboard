@@ -1,4 +1,5 @@
 import 'package:camaleon_billboard/core/db/mysql_client.dart';
+import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/core/utils/type_data.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
@@ -45,12 +46,10 @@ class BillboardRepositoryImpl implements BillboardRepository {
     final list = <ArrangementBlock>[];
     for (final row in rows) {
       final block = _mapArrangement(Map<String, dynamic>.from(row.fields));
-      if (block.classId == 0 &&
-          block.pictureRoute.isEmpty &&
-          !block.usePicture) {
+      if (block.classId == 0 && !block.hasPicture && !block.usePicture) {
         continue;
       }
-      if (usePicture && block.pictureRoute.isEmpty) continue;
+      if (usePicture && !block.hasPicture) continue;
       if (!usePicture && block.classId == 0) continue;
       list.add(block);
     }
@@ -84,6 +83,7 @@ class BillboardRepositoryImpl implements BillboardRepository {
       modifierColor: Utils.asInt(row['modfcolor'], 0),
       detailDescription: Utils.str(row['detaildesc']),
       pictureRoute: Utils.str(row['bbpic_route']),
+      pictureBytes: Utils.asBytes(row['bb_pic']),
       rangeItems: Utils.str(row['range_items']),
       usePicture: Utils.asFlag(row['usepic']),
     );
@@ -304,7 +304,7 @@ INSERT INTO $_table (
   classfcolor, classbcolor, itemfcolor, itemsbcolor, mainbcolor,
   modfsize, modfname, modfcolor,
   pricefname, pricefsize, pricefcolor,
-  detaildesc, bbpic_route, range_items, usepic
+  detaildesc, bbpic_route, bb_pic, range_items, usepic
 ) VALUES (
   ?, ?, ?, ?, ?, ?,
   ?, ?, ?, ?,
@@ -312,7 +312,7 @@ INSERT INTO $_table (
   ?, ?, ?, ?, ?,
   ?, ?, ?,
   ?, ?, ?,
-  ?, ?, ?, ?
+  ?, ?, ?, ?, ?
 )
 ''',
         [
@@ -359,6 +359,7 @@ INSERT INTO $_table (
               : Utils.str(f['pricefcolor']),
           Utils.str(f['detaildesc']),
           Utils.str(f['bbpic_route']),
+          Utils.asBytes(f['bb_pic']),
           Utils.str(f['range_items']),
           Utils.asFlag(f['usepic']) ? 1 : 0,
         ],
@@ -372,14 +373,11 @@ INSERT INTO $_table (
   Future<void> updateArrangementLayout({
     required int id,
     required String compName,
-    required int xDistance,
-    required int yDistance,
-    required int maxWidth,
-    int? classFontSize,
-    int? itemFontSize,
+    required ArrangementBlock arrangement,
   }) async {
     final name = compName.trim();
     if (name.isEmpty || id <= 0) return;
+    final a = arrangement;
 
     await _client.query(
       '''
@@ -387,16 +385,46 @@ UPDATE $_table SET
   xdis = ?,
   ydis = ?,
   max_width = ?,
-  classfontsize = COALESCE(?, classfontsize),
-  itemsfontsize = COALESCE(?, itemsfontsize)
+  classfontsize = ?,
+  itemsfontsize = ?,
+  classfname = ?,
+  itemfname = ?,
+  classucase = ?,
+  itemucase = ?,
+  classbold = ?,
+  itembold = ?,
+  classfcolor = ?,
+  classbcolor = ?,
+  itemfcolor = ?,
+  itemsbcolor = ?,
+  mainbcolor = ?,
+  modfsize = ?,
+  modfname = ?,
+  modfcolor = ?,
+  detaildesc = ?
 WHERE ID = ? AND comp_name = ?
 ''',
       [
-        xDistance,
-        yDistance,
-        maxWidth.clamp(80, 20000),
-        classFontSize,
-        itemFontSize,
+        a.xDistance.clamp(0, 100000),
+        a.yDistance.clamp(0, 100000),
+        a.maxWidth.clamp(80, 20000),
+        a.classFontSize.clamp(10, 96),
+        a.itemFontSize.clamp(8, 72),
+        a.classFontName,
+        a.itemFontName,
+        a.classUpperCase ? 1 : 0,
+        a.itemUpperCase ? 1 : 0,
+        a.classBold ? 1 : 0,
+        a.itemBold ? 1 : 0,
+        '${QbColors.clampOpaque(a.classForeColor)}',
+        '${QbColors.clampFill(a.classBackColor)}',
+        '${QbColors.clampOpaque(a.itemForeColor)}',
+        '${QbColors.clampFill(a.itemBackColor)}',
+        '${QbColors.clampOpaque(a.mainBackColor)}',
+        a.modifierFontSize.clamp(8, 48),
+        a.modifierFontName,
+        '${QbColors.clampOpaque(a.modifierColor)}',
+        a.detailDescription,
         id,
         name,
       ],
