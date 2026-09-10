@@ -22,7 +22,8 @@ class BillboardRepositoryImpl implements BillboardRepository {
   Future<void> disconnect() => _client.disconnect();
 
   @override
-  Future<bool> testConnection(DbConnectionConfig config) => _client.test(config);
+  Future<bool> testConnection(DbConnectionConfig config) =>
+      _client.test(config);
 
   @override
   Future<List<ArrangementBlock>> loadMenuArrangements(String compName) {
@@ -165,7 +166,8 @@ class BillboardRepositoryImpl implements BillboardRepository {
 
     // Keep the full class list in memory; Skip/Count is applied at paint time
     // so the editor can change the window without another DB round-trip.
-    final sql = '''
+    final sql =
+        '''
 SELECT
   it_titemclass.Class_Name,
   it_titem.ITEM_ID,
@@ -239,7 +241,8 @@ ORDER BY $orderBy
         : 'it_titem.Prioridad DESC, it_titem.ITEM_Description ASC';
 
     // offer_id = dates_special.Id = day_specials.PR_ID (POS specials).
-    final sql = '''
+    final sql =
+        '''
 SELECT
   IFNULL(ds.descripcion, '') AS special_name,
   it_titem.ITEM_ID,
@@ -265,7 +268,8 @@ ORDER BY $orderBy
       rows = await _client.query(sql, [offerId]);
     } catch (_) {
       // Older schemas without Prioridad / descripcion — still try a minimal join.
-      rows = await _client.query('''
+      rows = await _client.query(
+        '''
 SELECT
   IFNULL(ds.descripcion, '') AS special_name,
   it_titem.ITEM_ID,
@@ -282,7 +286,9 @@ WHERE day_specials.PR_ID = ?
   AND IFNULL(day_specials.item_dis, 0) <> 1
   AND IFNULL(day_specials.class_dis, 0) <> 1
 ORDER BY it_titem.ITEM_Description ASC
-''', [offerId]);
+''',
+        [offerId],
+      );
     }
 
     String specialName = '';
@@ -308,14 +314,12 @@ ORDER BY it_titem.ITEM_Description ASC
 
     var title = specialName.trim().isNotEmpty
         ? specialName.trim()
-        : (block.screenName.trim().isNotEmpty ? block.screenName.trim() : 'SPECIAL');
+        : (block.screenName.trim().isNotEmpty
+              ? block.screenName.trim()
+              : 'SPECIAL');
     if (block.classUpperCase) title = title.toUpperCase();
 
-    return MenuSection(
-      arrangement: block,
-      className: title,
-      items: items,
-    );
+    return MenuSection(arrangement: block, className: title, items: items);
   }
 
   @override
@@ -389,9 +393,7 @@ ORDER BY ds.DateOut ASC
       }
     }
 
-    final pictures = [
-      for (final b in pics) PictureBlock(arrangement: b),
-    ];
+    final pictures = [for (final b in pics) PictureBlock(arrangement: b)];
 
     final mainBg = sections.isNotEmpty
         ? sections.first.arrangement.mainBackColor
@@ -433,8 +435,7 @@ ORDER BY ds.DateOut ASC
       'ORDER BY comp_name',
     );
     return [
-      for (final row in rows)
-        Utils.str(row['comp_name']),
+      for (final row in rows) Utils.str(row['comp_name']),
     ].where((e) => e.isNotEmpty).toList();
   }
 
@@ -582,20 +583,14 @@ INSERT INTO $_table (
           Utils.str(f['classbcolor']).isEmpty
               ? '2'
               : Utils.str(f['classbcolor']),
-          Utils.str(f['itemfcolor']).isEmpty
-              ? '0'
-              : Utils.str(f['itemfcolor']),
+          Utils.str(f['itemfcolor']).isEmpty ? '0' : Utils.str(f['itemfcolor']),
           Utils.str(f['itemsbcolor']).isEmpty
               ? '15'
               : Utils.str(f['itemsbcolor']),
-          Utils.str(f['mainbcolor']).isEmpty
-              ? '0'
-              : Utils.str(f['mainbcolor']),
+          Utils.str(f['mainbcolor']).isEmpty ? '0' : Utils.str(f['mainbcolor']),
           Utils.asInt(f['modfsize'], 10),
           Utils.str(f['modfname']),
-          Utils.str(f['modfcolor']).isEmpty
-              ? '0'
-              : Utils.str(f['modfcolor']),
+          Utils.str(f['modfcolor']).isEmpty ? '0' : Utils.str(f['modfcolor']),
           Utils.str(f['pricefname']),
           Utils.asInt(f['pricefsize'], 20),
           Utils.str(f['pricefcolor']).isEmpty
@@ -917,14 +912,7 @@ INSERT INTO $_table (
           'UPDATE $_table SET '
           'media_type = ?, media_file = ?, bbpic_route = ?, bb_pic = ? '
           'WHERE ID = ? AND comp_name = ?',
-          [
-            mediaType.dbValue,
-            mediaFile,
-            pictureRoute,
-            pictureBytes,
-            id,
-            name,
-          ],
+          [mediaType.dbValue, mediaFile, pictureRoute, pictureBytes, id, name],
         );
       }
       return;
@@ -1142,20 +1130,16 @@ INSERT INTO $_table (
   10, '', '0', '', '', '', 1
 )
 ''',
-        [
-          name,
-          title,
-          xDistance,
-          yDistance,
-          maxWidth,
-          '$mainBackColor',
-        ],
+        [name, title, xDistance, yDistance, maxWidth, '$mainBackColor'],
       );
       return await _resolveInsertId(result, compName: name);
     }
   }
 
-  Future<int> _resolveInsertId(Results result, {required String compName}) async {
+  Future<int> _resolveInsertId(
+    Results result, {
+    required String compName,
+  }) async {
     final id = result.insertId;
     if (id != null && id > 0) return id;
     final rows = await _client.query(
@@ -1177,10 +1161,7 @@ INSERT INTO $_table (
     final name = compName.trim();
     final Results result;
     if (name.isEmpty) {
-      result = await _client.query(
-        'DELETE FROM $_table WHERE ID = ?',
-        [id],
-      );
+      result = await _client.query('DELETE FROM $_table WHERE ID = ?', [id]);
     } else {
       result = await _client.query(
         'DELETE FROM $_table WHERE ID = ? AND comp_name = ?',
@@ -1197,10 +1178,9 @@ INSERT INTO $_table (
   @override
   Future<int> deleteArrangementById(int id) async {
     if (id <= 0) return 0;
-    final result = await _client.query(
-      'DELETE FROM $_table WHERE ID = ?',
-      [id],
-    );
+    final result = await _client.query('DELETE FROM $_table WHERE ID = ?', [
+      id,
+    ]);
     return result.affectedRows ?? 0;
   }
 
@@ -1213,10 +1193,9 @@ INSERT INTO $_table (
     final name = compName.trim();
     Results rows;
     if (name.isEmpty) {
-      rows = await _client.query(
-        'SELECT * FROM $_table WHERE ID = ? LIMIT 1',
-        [id],
-      );
+      rows = await _client.query('SELECT * FROM $_table WHERE ID = ? LIMIT 1', [
+        id,
+      ]);
     } else {
       rows = await _client.query(
         'SELECT * FROM $_table WHERE ID = ? AND comp_name = ? LIMIT 1',
@@ -1244,8 +1223,7 @@ INSERT INTO $_table (
   }) async {
     final cap = limit.clamp(1, 40);
     try {
-      final rows = await _client.query(
-        '''
+      final rows = await _client.query('''
 SELECT
   c.Cuenta_ID,
   c.Cuenta_Name,
@@ -1265,8 +1243,7 @@ WHERE (c.Cuenta_Close = 0 OR c.Cuenta_Close = '0')
   AND (o.Item_Closed = 0 OR o.Item_Closed = '0')
 ORDER BY c.Cuenta_ID DESC, o.Order_ID ASC
 LIMIT 400
-''',
-      );
+''');
 
       final byCuenta = <int, _OpenTicketAcc>{};
       for (final row in rows) {

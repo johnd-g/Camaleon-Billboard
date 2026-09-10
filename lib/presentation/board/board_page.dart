@@ -144,29 +144,25 @@ class _BoardPageState extends State<BoardPage> {
       }
     }
     // On phones, put the editor opposite the block so it stays visible.
-    final dockEditorTop = !sideEditor &&
+    final dockEditorTop =
+        !sideEditor &&
         selectedSection != null &&
         selectedSection.arrangement.yDistance > designH * 0.42;
 
     // Paint the selected block last so it sits above overlaps and stays tappable.
-    final pictures = _withSelectedOnTop(
-      [
-        for (final p in board.pictures)
-          if (c.isArrangementVisible(p.arrangement)) p,
-      ],
-      (p) => p.arrangement.id,
-    );
-    final sections = _withSelectedOnTop(
-      [
-        for (final s in board.sections)
-          if (c.isArrangementVisible(s.arrangement)) s,
-      ],
-      (s) => s.arrangement.id,
-    );
+    final pictures = _withSelectedOnTop([
+      for (final p in board.pictures)
+        if (c.isArrangementVisible(p.arrangement)) p,
+    ], (p) => p.arrangement.id);
+    final sections = _withSelectedOnTop([
+      for (final s in board.sections)
+        if (c.isArrangementVisible(s.arrangement)) s,
+    ], (s) => s.arrangement.id);
     final bgPictures = board.boardBackgroundPictures;
     // If DB has multiple bb_background=1, only paint the first and warn in UI.
-    final activeBgPictures =
-        bgPictures.length <= 1 ? bgPictures : bgPictures.take(1).toList();
+    final activeBgPictures = bgPictures.length <= 1
+        ? bgPictures
+        : bgPictures.take(1).toList();
     final fgPictures = [
       for (final p in pictures)
         if (!p.arrangement.isBoardBackground) p,
@@ -198,8 +194,7 @@ class _BoardPageState extends State<BoardPage> {
                     behavior: HitTestBehavior.opaque,
                     onDoubleTap: editing
                         ? null
-                        : () =>
-                            setState(() => _chromeHidden = !_chromeHidden),
+                        : () => setState(() => _chromeHidden = !_chromeHidden),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         return InteractiveViewer(
@@ -229,7 +224,8 @@ class _BoardPageState extends State<BoardPage> {
                                             child: DecoratedBox(
                                               decoration: BoxDecoration(
                                                 border: Border.all(
-                                                  color: _selectedId ==
+                                                  color:
+                                                      _selectedId ==
                                                           pic.arrangement.id
                                                       ? CamaleonColors.green
                                                       : Colors.transparent,
@@ -241,9 +237,7 @@ class _BoardPageState extends State<BoardPage> {
                                               ),
                                             ),
                                           )
-                                        : BillboardPicturePanel(
-                                            block: pic,
-                                          ),
+                                        : BillboardPicturePanel(block: pic),
                                   ),
                                 // Menu coords stay in design space; bg fills the screen.
                                 FittedBox(
@@ -281,7 +275,8 @@ class _BoardPageState extends State<BoardPage> {
                                                   _maxBlockWidth.toDouble(),
                                                 ),
                                             editing: editing,
-                                            selected: _selectedId ==
+                                            selected:
+                                                _selectedId ==
                                                 section.arrangement.id,
                                             resizable: true,
                                             contentRevision:
@@ -312,15 +307,7 @@ class _BoardPageState extends State<BoardPage> {
                                                 // Include prices/names — otherwise
                                                 // _BoardBlock keeps a stale child
                                                 // when only ITEM_Sale_Price changes.
-                                                '${Object.hashAll([
-                                                  for (final i in section.items)
-                                                    Object.hash(
-                                                      i.itemId,
-                                                      i.name,
-                                                      i.price,
-                                                      i.description,
-                                                    ),
-                                                ])}',
+                                                '${Object.hashAll([for (final i in section.items) Object.hash(i.itemId, i.name, i.price, i.description)])}',
                                             onSelect: () => _selectBlock(
                                               section.arrangement.id,
                                             ),
@@ -353,10 +340,12 @@ class _BoardPageState extends State<BoardPage> {
                                                   40,
                                                   _maxBlockWidth.toDouble(),
                                                 ),
-                                            height: pic.arrangement
+                                            height: pic
+                                                .arrangement
                                                 .pictureDisplayHeight,
                                             editing: editing,
-                                            selected: _selectedId ==
+                                            selected:
+                                                _selectedId ==
                                                 pic.arrangement.id,
                                             resizable: true,
                                             minWidth: 80,
@@ -439,8 +428,11 @@ class _BoardPageState extends State<BoardPage> {
                     padding: EdgeInsets.fromLTRB(12, 10, 12, 10),
                     child: Row(
                       children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: Color(0xFFFFE7A3), size: 20),
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: Color(0xFFFFE7A3),
+                          size: 20,
+                        ),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -496,12 +488,10 @@ class _BoardPageState extends State<BoardPage> {
               onPickBackgroundImage: _pickBoardBackgroundImage,
               onPickBackgroundVideo: _pickBoardBackgroundVideo,
               onClearBackgroundImage: _clearBoardBackgroundImage,
-              onPickBlockImage: () => _browseSelectedMediaFile(
-                ArrangementMediaType.image,
-              ),
-              onPickBlockVideo: () => _browseSelectedMediaFile(
-                ArrangementMediaType.video,
-              ),
+              onPickBlockImage: () =>
+                  _browseSelectedMediaFile(ArrangementMediaType.image),
+              onPickBlockVideo: () =>
+                  _browseSelectedMediaFile(ArrangementMediaType.video),
               onClearBlockMedia: _clearSelectedBlockMedia,
               onAddMenuSection: _addMenuSection,
               onAddOfferSection: _addOfferSection,
@@ -511,83 +501,84 @@ class _BoardPageState extends State<BoardPage> {
               creatingBlock: c.creatingBlock,
               customerDisplay: c.customerDisplay,
               onCustomerDisplayChanged: c.setCustomerDisplay,
-              onStylePatch: ({
-                int? classFontDelta,
-                int? itemFontDelta,
-                int? modifierFontSize,
-                int? classForeColor,
-                int? classBackColor,
-                int? itemForeColor,
-                int? itemBackColor,
-                int? mainBackColor,
-                int? modifierColor,
-                bool? classBold,
-                bool? itemBold,
-                bool? classUpperCase,
-                bool? itemUpperCase,
-                bool? boardBackground,
-                int? maxWidth,
-                String? classFontName,
-                String? itemFontName,
-                String? modifierFontName,
-                ArrangementContentType? contentType,
-                int? offerId,
-                ArrangementMediaType? mediaType,
-                String? mediaFile,
-                ArrangementMediaFit? mediaFit,
-                double? mediaOpacity,
-                int? displayOrder,
-                int? displaySeconds,
-                int? rangeOffset,
-                int? rangeCount,
-                int? borderWidth,
-                String? borderColor,
-                bool? videoLoop,
-                bool? videoMuted,
-              }) {
-                final id = _selectedId;
-                if (id == null) return;
-                if (maxWidth != null) {
-                  c.resizeArrangement(
-                    arrangementId: id,
-                    maxWidth: maxWidth,
-                  );
-                }
-                c.updateArrangementStyle(
-                  arrangementId: id,
-                  classFontDelta: classFontDelta,
-                  itemFontDelta: itemFontDelta,
-                  modifierFontSize: modifierFontSize,
-                  classForeColor: classForeColor,
-                  classBackColor: classBackColor,
-                  itemForeColor: itemForeColor,
-                  itemBackColor: itemBackColor,
-                  mainBackColor: mainBackColor,
-                  modifierColor: modifierColor,
-                  classBold: classBold,
-                  itemBold: itemBold,
-                  classUpperCase: classUpperCase,
-                  itemUpperCase: itemUpperCase,
-                  boardBackground: boardBackground,
-                  classFontName: classFontName,
-                  itemFontName: itemFontName,
-                  modifierFontName: modifierFontName,
-                  contentType: contentType,
-                  offerId: offerId,
-                  mediaType: mediaType,
-                  mediaFile: mediaFile,
-                  mediaFit: mediaFit,
-                  mediaOpacity: mediaOpacity,
-                  displayOrder: displayOrder,
-                  displaySeconds: displaySeconds,
-                  rangeOffset: rangeOffset,
-                  rangeCount: rangeCount,
-                  borderWidth: borderWidth,
-                  borderColor: borderColor,
-                  videoLoop: videoLoop,
-                  videoMuted: videoMuted,
-                );
-              },
+              onStylePatch:
+                  ({
+                    int? classFontDelta,
+                    int? itemFontDelta,
+                    int? modifierFontSize,
+                    int? classForeColor,
+                    int? classBackColor,
+                    int? itemForeColor,
+                    int? itemBackColor,
+                    int? mainBackColor,
+                    int? modifierColor,
+                    bool? classBold,
+                    bool? itemBold,
+                    bool? classUpperCase,
+                    bool? itemUpperCase,
+                    bool? boardBackground,
+                    int? maxWidth,
+                    String? classFontName,
+                    String? itemFontName,
+                    String? modifierFontName,
+                    ArrangementContentType? contentType,
+                    int? offerId,
+                    ArrangementMediaType? mediaType,
+                    String? mediaFile,
+                    ArrangementMediaFit? mediaFit,
+                    double? mediaOpacity,
+                    int? displayOrder,
+                    int? displaySeconds,
+                    int? rangeOffset,
+                    int? rangeCount,
+                    int? borderWidth,
+                    String? borderColor,
+                    bool? videoLoop,
+                    bool? videoMuted,
+                  }) {
+                    final id = _selectedId;
+                    if (id == null) return;
+                    if (maxWidth != null) {
+                      c.resizeArrangement(
+                        arrangementId: id,
+                        maxWidth: maxWidth,
+                      );
+                    }
+                    c.updateArrangementStyle(
+                      arrangementId: id,
+                      classFontDelta: classFontDelta,
+                      itemFontDelta: itemFontDelta,
+                      modifierFontSize: modifierFontSize,
+                      classForeColor: classForeColor,
+                      classBackColor: classBackColor,
+                      itemForeColor: itemForeColor,
+                      itemBackColor: itemBackColor,
+                      mainBackColor: mainBackColor,
+                      modifierColor: modifierColor,
+                      classBold: classBold,
+                      itemBold: itemBold,
+                      classUpperCase: classUpperCase,
+                      itemUpperCase: itemUpperCase,
+                      boardBackground: boardBackground,
+                      classFontName: classFontName,
+                      itemFontName: itemFontName,
+                      modifierFontName: modifierFontName,
+                      contentType: contentType,
+                      offerId: offerId,
+                      mediaType: mediaType,
+                      mediaFile: mediaFile,
+                      mediaFit: mediaFit,
+                      mediaOpacity: mediaOpacity,
+                      displayOrder: displayOrder,
+                      displaySeconds: displaySeconds,
+                      rangeOffset: rangeOffset,
+                      rangeCount: rangeCount,
+                      borderWidth: borderWidth,
+                      borderColor: borderColor,
+                      videoLoop: videoLoop,
+                      videoMuted: videoMuted,
+                    );
+                  },
             )
           else if (!_chromeHidden)
             Positioned(
@@ -611,8 +602,10 @@ class _BoardPageState extends State<BoardPage> {
                       IconButton(
                         tooltip: 'Edit layout',
                         onPressed: _enterLayoutEdit,
-                        icon: const Icon(Icons.edit_outlined,
-                            color: Colors.white),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                        ),
                       ),
                       IconButton(
                         tooltip: 'Reload',
@@ -672,19 +665,16 @@ class _BoardPageState extends State<BoardPage> {
   double _designHeight(BillboardBoard board) {
     var maxY = 720.0;
     for (final s in board.sections) {
-      final visibleCount =
-          s.arrangement.applyRange(s.items).length;
-      final estimate = s.arrangement.yDistance +
+      final visibleCount = s.arrangement.applyRange(s.items).length;
+      final estimate =
+          s.arrangement.yDistance +
           80 +
           (visibleCount * (s.arrangement.itemFontSize + 10));
       maxY = math.max(maxY, estimate.toDouble());
     }
     for (final p in board.pictures) {
       if (p.arrangement.isBoardBackground) continue;
-      maxY = math.max(
-        maxY,
-        p.y + p.arrangement.pictureDisplayHeight,
-      );
+      maxY = math.max(maxY, p.y + p.arrangement.pictureDisplayHeight);
     }
     return maxY + 80;
   }
@@ -902,10 +892,11 @@ class _BoardPageState extends State<BoardPage> {
       return;
     }
 
-    final result = await showDialog<({List<SpecialOfferOption> offers, int seconds})>(
-      context: context,
-      builder: (ctx) => _RotatingOffersDialog(offers: offers),
-    );
+    final result =
+        await showDialog<({List<SpecialOfferOption> offers, int seconds})>(
+          context: context,
+          builder: (ctx) => _RotatingOffersDialog(offers: offers),
+        );
     if (result == null || !mounted) return;
     if (result.offers.isEmpty) return;
 
@@ -984,7 +975,8 @@ class _BoardPageState extends State<BoardPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
+              onPressed: () =>
+                  Navigator.of(ctx, rootNavigator: true).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -1032,7 +1024,11 @@ class _BoardPageState extends State<BoardPage> {
       if (bytes.isEmpty) return null;
       final dir = await getApplicationDocumentsDirectory();
       final dest = File(
-        p.join(dir.path, 'bb_media', file.name.isNotEmpty ? file.name : 'media.bin'),
+        p.join(
+          dir.path,
+          'bb_media',
+          file.name.isNotEmpty ? file.name : 'media.bin',
+        ),
       );
       await dest.parent.create(recursive: true);
       await dest.writeAsBytes(bytes, flush: true);
@@ -1370,13 +1366,13 @@ class _EditChrome extends StatelessWidget {
                 saving: saving,
                 hint: !hasSelection
                     ? (dirty
-                        ? 'Unsaved changes · Save to keep them'
-                        : 'Create or tap a block · Close when finished')
+                          ? 'Unsaved changes · Save to keep them'
+                          : 'Create or tap a block · Close when finished')
                     : (sidePanel
-                        ? 'Edit size & colors on the right'
-                        : (dockTop
-                            ? 'Edit size & colors above'
-                            : 'Edit size & colors below')),
+                          ? 'Edit size & colors on the right'
+                          : (dockTop
+                                ? 'Edit size & colors above'
+                                : 'Edit size & colors below')),
                 onCancel: onCancel,
                 onSave: onSave,
               ),
@@ -1529,7 +1525,9 @@ class _TopEditBar extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: CamaleonColors.orange.withValues(alpha: 0.25),
+                            color: CamaleonColors.orange.withValues(
+                              alpha: 0.25,
+                            ),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: const Text(
@@ -1616,6 +1614,7 @@ class _BoardBlock extends StatefulWidget {
   final bool editing;
   final bool selected;
   final bool resizable;
+
   /// When true, displayed height = width × 0.75 (no DB height column).
   final bool lockAspectHeight;
   final double minWidth;
@@ -1637,9 +1636,8 @@ class _BoardBlockState extends State<_BoardBlock> {
   Widget? _cachedChild;
   String? _cachedRevision;
 
-  double get _height => widget.lockAspectHeight
-      ? _width * 0.75
-      : (widget.height ?? 0);
+  double get _height =>
+      widget.lockAspectHeight ? _width * 0.75 : (widget.height ?? 0);
 
   @override
   void didUpdateWidget(covariant _BoardBlock oldWidget) {
@@ -1729,8 +1727,7 @@ class _BoardBlockState extends State<_BoardBlock> {
                 boxShadow: widget.selected
                     ? [
                         BoxShadow(
-                          color:
-                              CamaleonColors.green.withValues(alpha: 0.35),
+                          color: CamaleonColors.green.withValues(alpha: 0.35),
                           blurRadius: 12,
                         ),
                       ]
@@ -1816,10 +1813,7 @@ class _ResizeHandle extends StatelessWidget {
         color: CamaleonColors.green,
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 6,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 6),
         ],
       ),
       child: Icon(
@@ -1900,11 +1894,12 @@ class _RotatingOffersDialogState extends State<_RotatingOffersDialog> {
                 ),
                 const Spacer(),
                 IconButton(
-                  onPressed: () => setState(
-                    () => _seconds = (_seconds - 1).clamp(1, 120),
+                  onPressed: () =>
+                      setState(() => _seconds = (_seconds - 1).clamp(1, 120)),
+                  icon: const Icon(
+                    Icons.remove_circle_outline,
+                    color: Colors.white70,
                   ),
-                  icon: const Icon(Icons.remove_circle_outline,
-                      color: Colors.white70),
                 ),
                 Text(
                   '$_seconds s',
@@ -1914,11 +1909,12 @@ class _RotatingOffersDialogState extends State<_RotatingOffersDialog> {
                   ),
                 ),
                 IconButton(
-                  onPressed: () => setState(
-                    () => _seconds = (_seconds + 1).clamp(1, 120),
+                  onPressed: () =>
+                      setState(() => _seconds = (_seconds + 1).clamp(1, 120)),
+                  icon: const Icon(
+                    Icons.add_circle_outline,
+                    color: Colors.white70,
                   ),
-                  icon: const Icon(Icons.add_circle_outline,
-                      color: Colors.white70),
                 ),
               ],
             ),
@@ -1986,7 +1982,9 @@ class _RotatingOffersDialogState extends State<_RotatingOffersDialog> {
                     for (final o in widget.offers)
                       if (_selected.contains(o.id)) o,
                   ];
-                  Navigator.of(context).pop((offers: picked, seconds: _seconds));
+                  Navigator.of(
+                    context,
+                  ).pop((offers: picked, seconds: _seconds));
                 },
           child: Text(
             _selected.isEmpty

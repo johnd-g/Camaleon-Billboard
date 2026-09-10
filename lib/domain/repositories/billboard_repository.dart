@@ -135,10 +135,7 @@ abstract class BillboardRepository {
 
   /// Deletes one `bb_arrangement` row for this device.
   /// Returns affected row count.
-  Future<int> deleteArrangement({
-    required int id,
-    required String compName,
-  });
+  Future<int> deleteArrangement({required int id, required String compName});
 
   /// Force-delete by primary key only (ignores comp_name).
   Future<int> deleteArrangementById(int id);

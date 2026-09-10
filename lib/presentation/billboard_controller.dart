@@ -48,8 +48,8 @@ class BillboardController extends ChangeNotifier {
     MysqlClient? client,
     ConnectionConfigRepository? connectionRepo,
     BillboardRepository? billboardRepo,
-  })  : _client = client ?? MysqlClient(),
-        _connectionRepo = connectionRepo ?? ConnectionConfigRepositoryImpl() {
+  }) : _client = client ?? MysqlClient(),
+       _connectionRepo = connectionRepo ?? ConnectionConfigRepositoryImpl() {
     _billboardRepo = billboardRepo ?? BillboardRepositoryImpl(_client);
     _loadBoard = LoadBillboardUseCase(_billboardRepo);
   }
@@ -122,12 +122,12 @@ class BillboardController extends ChangeNotifier {
   }
 
   bool isArrangementVisible(ArrangementBlock a) => BoardRotation.isVisible(
-        a,
-        editing: layoutEditing,
-        previewRotation: previewRotation,
-        activeRotationId: activeRotationId,
-        hasRotationPlaylist: hasRotationPlaylist,
-      );
+    a,
+    editing: layoutEditing,
+    previewRotation: previewRotation,
+    activeRotationId: activeRotationId,
+    hasRotationPlaylist: hasRotationPlaylist,
+  );
 
   void setPreviewRotation(bool enabled) {
     if (previewRotation == enabled) return;
@@ -162,6 +162,11 @@ class BillboardController extends ChangeNotifier {
     }
     sortAlphabetical = await _connectionRepo.loadSortAlphabetical();
     refreshSeconds = await _connectionRepo.loadRefreshSeconds();
+    // Older default/saved value was often 60; menu prices should poll every 5s.
+    if (refreshSeconds >= 60) {
+      refreshSeconds = 5;
+      await _connectionRepo.saveRefreshSeconds(5);
+    }
     customerDisplay = await _connectionRepo.loadCustomerDisplay();
     _customerDisplaySaved = customerDisplay;
 
@@ -194,7 +199,8 @@ class BillboardController extends ChangeNotifier {
 
   Future<void> saveComputerName(String name) async {
     // On Android the station id is always the device name.
-    final resolved = Platform.isAndroid && detectedComputerName.trim().isNotEmpty
+    final resolved =
+        Platform.isAndroid && detectedComputerName.trim().isNotEmpty
         ? detectedComputerName.trim()
         : name.trim();
     computerName = resolved;
@@ -295,7 +301,8 @@ class BillboardController extends ChangeNotifier {
   }
 
   /// Lists databases for [config] (or LAN host). Updates [availableDatabases].
-  Future<({String host, List<String> databases, String? error})> searchDatabases({
+  Future<({String host, List<String> databases, String? error})>
+  searchDatabases({
     DbConnectionConfig? config,
     String? passwordOverride,
   }) async {
@@ -321,8 +328,9 @@ class BillboardController extends ChangeNotifier {
         if (!uniquePass.contains(p)) uniquePass.add(p);
       }
 
-      final user =
-          cfg.user.trim().isEmpty ? kDefaultMysqlUser : cfg.user.trim();
+      final user = cfg.user.trim().isEmpty
+          ? kDefaultMysqlUser
+          : cfg.user.trim();
       final port = cfg.port <= 0 ? kDefaultMysqlPort : cfg.port;
 
       var hosts = <String>[];
@@ -332,7 +340,9 @@ class BillboardController extends ChangeNotifier {
       } else {
         autoConnectStatus = 'Searching for MySQL on the network…';
         notifyListeners();
-        hosts = await LanMysqlDiscovery.findMysqlHosts(onProgress: _setProgress);
+        hosts = await LanMysqlDiscovery.findMysqlHosts(
+          onProgress: _setProgress,
+        );
       }
 
       if (hosts.isEmpty) {
@@ -480,13 +490,13 @@ class BillboardController extends ChangeNotifier {
       final user = (config?.user.trim().isNotEmpty == true)
           ? config!.user.trim()
           : (connection.user.trim().isNotEmpty
-              ? connection.user.trim()
-              : kDefaultMysqlUser);
+                ? connection.user.trim()
+                : kDefaultMysqlUser);
       final preferredDb = (config?.database.trim().isNotEmpty == true)
           ? config!.database.trim()
           : (connection.database.trim().isNotEmpty
-              ? connection.database.trim()
-              : null);
+                ? connection.database.trim()
+                : null);
 
       final passwords = <String>[
         ?passwordOverride,
@@ -625,11 +635,12 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> reloadSilent({bool full = false}) async {
+  Future<void> reloadSilent({bool full = false, bool fromTimer = false}) async {
     if (phase != BillboardPhase.ready) return;
     if (layoutEditing || layoutDirty || savingLayout) return;
     if (_reloadInFlight) return;
     _reloadInFlight = true;
+    final sw = fromTimer && kDebugMode ? (Stopwatch()..start()) : null;
     try {
       final current = board;
       final BillboardBoard next;
@@ -649,6 +660,14 @@ class BillboardController extends ChangeNotifier {
       board = next;
       _syncBoardRotation();
       notifyListeners();
+      if (sw != null) {
+        debugPrint(
+          'Billboard auto refresh '
+          '(full=$full, interval=${refreshSeconds.clamp(5, 3600)}s, '
+          'sections=${next.sections.length}, '
+          '${sw.elapsedMilliseconds}ms)',
+        );
+      }
     } catch (e) {
       if (kDebugMode) debugPrint('Silent reload failed: $e');
     } finally {
@@ -712,45 +731,43 @@ class BillboardController extends ChangeNotifier {
 
     var changed = false;
 
-    final sections = b.sections.map((s) {
-      if (s.arrangement.id != arrangementId) return s;
-      final a = s.arrangement;
-      final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
-      final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
-      final nw =
-          maxWidth == null ? a.maxWidth : maxWidth.clamp(wMin, 20000);
-      if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
-        return s;
-      }
-      changed = true;
-      return s.copyWith(
-        arrangement: a.copyWith(
-          xDistance: nx,
-          yDistance: ny,
-          maxWidth: nw,
-        ),
-      );
-    }).toList(growable: false);
+    final sections = b.sections
+        .map((s) {
+          if (s.arrangement.id != arrangementId) return s;
+          final a = s.arrangement;
+          final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
+          final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
+          final nw = maxWidth == null
+              ? a.maxWidth
+              : maxWidth.clamp(wMin, 20000);
+          if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
+            return s;
+          }
+          changed = true;
+          return s.copyWith(
+            arrangement: a.copyWith(xDistance: nx, yDistance: ny, maxWidth: nw),
+          );
+        })
+        .toList(growable: false);
 
-    final pictures = b.pictures.map((p) {
-      if (p.arrangement.id != arrangementId) return p;
-      final a = p.arrangement;
-      final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
-      final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
-      final nw =
-          maxWidth == null ? a.maxWidth : maxWidth.clamp(wMin, 20000);
-      if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
-        return p;
-      }
-      changed = true;
-      return p.copyWith(
-        arrangement: a.copyWith(
-          xDistance: nx,
-          yDistance: ny,
-          maxWidth: nw,
-        ),
-      );
-    }).toList(growable: false);
+    final pictures = b.pictures
+        .map((p) {
+          if (p.arrangement.id != arrangementId) return p;
+          final a = p.arrangement;
+          final nx = (xDistance ?? a.xDistance).clamp(0, xCap);
+          final ny = (yDistance ?? a.yDistance).clamp(0, yCap);
+          final nw = maxWidth == null
+              ? a.maxWidth
+              : maxWidth.clamp(wMin, 20000);
+          if (nx == a.xDistance && ny == a.yDistance && nw == a.maxWidth) {
+            return p;
+          }
+          changed = true;
+          return p.copyWith(
+            arrangement: a.copyWith(xDistance: nx, yDistance: ny, maxWidth: nw),
+          );
+        })
+        .toList(growable: false);
 
     if (!changed) return;
     board = b.copyWith(sections: sections, pictures: pictures);
@@ -844,26 +861,35 @@ class BillboardController extends ChangeNotifier {
         next = next.copyWith(itemFontSize: itemFontSize.clamp(8, 72));
       }
       if (modifierFontSize != null) {
-        next =
-            next.copyWith(modifierFontSize: modifierFontSize.clamp(8, 48));
+        next = next.copyWith(modifierFontSize: modifierFontSize.clamp(8, 48));
       }
       if (classForeColor != null) {
-        next = next.copyWith(classForeColor: QbColors.clampOpaque(classForeColor));
+        next = next.copyWith(
+          classForeColor: QbColors.clampOpaque(classForeColor),
+        );
       }
       if (classBackColor != null) {
-        next = next.copyWith(classBackColor: QbColors.clampFill(classBackColor));
+        next = next.copyWith(
+          classBackColor: QbColors.clampFill(classBackColor),
+        );
       }
       if (itemForeColor != null) {
-        next = next.copyWith(itemForeColor: QbColors.clampOpaque(itemForeColor));
+        next = next.copyWith(
+          itemForeColor: QbColors.clampOpaque(itemForeColor),
+        );
       }
       if (itemBackColor != null) {
         next = next.copyWith(itemBackColor: QbColors.clampFill(itemBackColor));
       }
       if (mainBackColor != null) {
-        next = next.copyWith(mainBackColor: QbColors.clampOpaque(mainBackColor));
+        next = next.copyWith(
+          mainBackColor: QbColors.clampOpaque(mainBackColor),
+        );
       }
       if (modifierColor != null) {
-        next = next.copyWith(modifierColor: QbColors.clampOpaque(modifierColor));
+        next = next.copyWith(
+          modifierColor: QbColors.clampOpaque(modifierColor),
+        );
       }
       if (classBold != null) next = next.copyWith(classBold: classBold);
       if (itemBold != null) next = next.copyWith(itemBold: itemBold);
@@ -899,10 +925,7 @@ class BillboardController extends ChangeNotifier {
       if (mediaType != null) {
         if (mediaType == ArrangementMediaType.video) {
           // Drop the image blob so the block actually becomes a video.
-          next = next.copyWith(
-            mediaType: mediaType,
-            clearPictureBytes: true,
-          );
+          next = next.copyWith(mediaType: mediaType, clearPictureBytes: true);
         } else if (mediaType == ArrangementMediaType.image) {
           next = next.copyWith(mediaType: mediaType);
         } else {
@@ -925,9 +948,7 @@ class BillboardController extends ChangeNotifier {
       }
       if (mediaFit != null) next = next.copyWith(mediaFit: mediaFit);
       if (mediaOpacity != null) {
-        next = next.copyWith(
-          mediaOpacity: mediaOpacity.clamp(0.0, 1.0),
-        );
+        next = next.copyWith(mediaOpacity: mediaOpacity.clamp(0.0, 1.0));
       }
       if (displayOrder != null) {
         next = next.copyWith(displayOrder: displayOrder.clamp(0, 100000));
@@ -940,10 +961,7 @@ class BillboardController extends ChangeNotifier {
         var c = rangeCount ?? next.rangeCount;
         // First Skip while "all" → start a sensible window (Classic style).
         if (rangeOffset != null && c <= 0) c = 12;
-        final encoded = ArrangementBlock.encodeRangeItems(
-          offset: o,
-          count: c,
-        );
+        final encoded = ArrangementBlock.encodeRangeItems(offset: o, count: c);
         if (encoded != next.rangeItems) {
           next = next.copyWith(rangeItems: encoded);
         }
@@ -1012,7 +1030,9 @@ class BillboardController extends ChangeNotifier {
       unawaited(_reloadSectionContent(arrangementId));
     }
     if (previewRotation &&
-        (displaySeconds != null || displayOrder != null || contentType != null)) {
+        (displaySeconds != null ||
+            displayOrder != null ||
+            contentType != null)) {
       _syncBoardRotation();
     }
   }
@@ -1064,15 +1084,11 @@ class BillboardController extends ChangeNotifier {
       mainBackColor: color,
       sections: [
         for (final s in b.sections)
-          s.copyWith(
-            arrangement: s.arrangement.copyWith(mainBackColor: color),
-          ),
+          s.copyWith(arrangement: s.arrangement.copyWith(mainBackColor: color)),
       ],
       pictures: [
         for (final p in b.pictures)
-          p.copyWith(
-            arrangement: p.arrangement.copyWith(mainBackColor: color),
-          ),
+          p.copyWith(arrangement: p.arrangement.copyWith(mainBackColor: color)),
       ],
     );
     layoutDirty = true;
@@ -1193,7 +1209,8 @@ class BillboardController extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('Board background video stage failed: $e\n$st');
+      if (kDebugMode)
+        debugPrint('Board background video stage failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       uploadingBoardBackground = false;
       notifyListeners();
@@ -1226,7 +1243,8 @@ class BillboardController extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e, st) {
-      if (kDebugMode) debugPrint('Clear board background stage failed: $e\n$st');
+      if (kDebugMode)
+        debugPrint('Clear board background stage failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       uploadingBoardBackground = false;
       notifyListeners();
@@ -1480,8 +1498,9 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final visiblePics =
-          b.pictures.where((p) => !p.arrangement.isBoardBackground).length;
+      final visiblePics = b.pictures
+          .where((p) => !p.arrangement.isBoardBackground)
+          .length;
       final index = b.sections.length + visiblePics;
       final id = _allocTempId();
       final title = screenName.trim().isEmpty ? 'Photo' : screenName.trim();
@@ -1598,9 +1617,11 @@ class BillboardController extends ChangeNotifier {
                 arrangement: p.arrangement.copyWith(
                   mediaType: mediaType,
                   mediaFile: mediaFile,
-                  pictureRoute:
-                      pictureRoute.isNotEmpty ? pictureRoute : mediaFile,
-                  pictureBytes: mediaType == ArrangementMediaType.image &&
+                  pictureRoute: pictureRoute.isNotEmpty
+                      ? pictureRoute
+                      : mediaFile,
+                  pictureBytes:
+                      mediaType == ArrangementMediaType.image &&
                           pictureBytes != null &&
                           pictureBytes.isNotEmpty
                       ? Uint8List.fromList(pictureBytes)
@@ -1722,7 +1743,9 @@ class BillboardController extends ChangeNotifier {
         lastError = e;
         lastStack = st;
         if (kDebugMode) {
-          debugPrint('Save layout attempt $attempt/$maxAttempts failed: $e\n$st');
+          debugPrint(
+            'Save layout attempt $attempt/$maxAttempts failed: $e\n$st',
+          );
         }
         if (attempt < maxAttempts) {
           await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
@@ -1731,7 +1754,9 @@ class BillboardController extends ChangeNotifier {
     }
 
     if (kDebugMode) {
-      debugPrint('Save layout failed after $maxAttempts attempts: $lastError\n$lastStack');
+      debugPrint(
+        'Save layout failed after $maxAttempts attempts: $lastError\n$lastStack',
+      );
     }
     errorMessage = AppFailure.message(lastError ?? 'Save failed');
     savingLayout = false;
@@ -1862,9 +1887,9 @@ class BillboardController extends ChangeNotifier {
           pictureBytes: a.mediaType == ArrangementMediaType.image
               ? (a.pictureBytes ?? const <int>[])
               : (a.mediaType == ArrangementMediaType.none ||
-                      a.mediaType == ArrangementMediaType.video
-                  ? const <int>[]
-                  : null),
+                        a.mediaType == ArrangementMediaType.video
+                    ? const <int>[]
+                    : null),
         );
       }
     });
@@ -1874,18 +1899,21 @@ class BillboardController extends ChangeNotifier {
     _refreshTimer?.cancel();
     if (layoutEditing) return;
     _pollTick = 0;
-    // Menu prices/specials every 5s; full board (layout + pics) less often.
+    // Always light-poll menu prices/names on every tick (fast).
+    // Full board (layout + bb_pic) only ~once per minute.
     final interval = refreshSeconds.clamp(5, 3600);
-    _refreshTimer = Timer.periodic(
-      Duration(seconds: interval),
-      (_) {
-        if (layoutEditing || layoutDirty || savingLayout) return;
-        _pollTick++;
-        // Every ~60s worth of ticks, do a full reload; otherwise items only.
-        final ticksForFull = (60 / interval).ceil().clamp(1, 120);
-        reloadSilent(full: _pollTick % ticksForFull == 0);
-      },
-    );
+    if (kDebugMode) {
+      debugPrint('Billboard auto refresh scheduled every ${interval}s');
+    }
+    _refreshTimer = Timer.periodic(Duration(seconds: interval), (_) {
+      if (layoutEditing || layoutDirty || savingLayout) return;
+      _pollTick++;
+      final ticksForFull = (60 / interval).ceil().clamp(1, 120);
+      // Never make every tick full when interval >= 60 — keep one light
+      // poll path; run full on a separate slower cadence via ticks.
+      final full = interval < 60 && _pollTick % ticksForFull == 0;
+      reloadSilent(full: full, fromTimer: true);
+    });
   }
 
   void _stopBoardRotation({bool notify = true}) {
@@ -1901,7 +1929,8 @@ class BillboardController extends ChangeNotifier {
   /// Rebuilds the display_order / display_seconds playlist and starts the timer.
   void _syncBoardRotation() {
     final allowWhileEditing = layoutEditing && previewRotation;
-    if ((!allowWhileEditing && layoutEditing) || phase != BillboardPhase.ready) {
+    if ((!allowWhileEditing && layoutEditing) ||
+        phase != BillboardPhase.ready) {
       _stopBoardRotation();
       return;
     }
@@ -1918,7 +1947,8 @@ class BillboardController extends ChangeNotifier {
       return;
     }
 
-    final playlistChanged = ids.length != _rotationPlaylist.length ||
+    final playlistChanged =
+        ids.length != _rotationPlaylist.length ||
         !_sameIntList(ids, _rotationPlaylist);
     _rotationPlaylist = ids;
 

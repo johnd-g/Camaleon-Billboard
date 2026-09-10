@@ -15,8 +15,10 @@ class MenuSectionPanel extends StatelessWidget {
 
   final MenuSection section;
 
-  static final NumberFormat _currency =
-      NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+  static final NumberFormat _currency = NumberFormat.currency(
+    symbol: '\$',
+    decimalDigits: 2,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -55,8 +57,9 @@ class MenuSectionPanel extends StatelessWidget {
                       style: BoardFonts.apply(
                         a.itemFontName,
                         TextStyle(
-                          color: QbColors.of(a.itemForeColor)
-                              .withValues(alpha: 0.7),
+                          color: QbColors.of(
+                            a.itemForeColor,
+                          ).withValues(alpha: 0.7),
                           fontSize: a.itemFontSize.toDouble().clamp(10, 48),
                           fontStyle: FontStyle.italic,
                         ),
@@ -127,11 +130,7 @@ class _ClassHeader extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: style,
-            ),
+            Text(title, textAlign: TextAlign.center, style: style),
           ],
         ),
       ),
@@ -202,11 +201,7 @@ class _DescRow extends StatelessWidget {
 }
 
 class BillboardPicturePanel extends StatelessWidget {
-  const BillboardPicturePanel({
-    super.key,
-    required this.block,
-    this.fit,
-  });
+  const BillboardPicturePanel({super.key, required this.block, this.fit});
 
   final PictureBlock block;
   final BoxFit? fit;
@@ -225,7 +220,11 @@ class BillboardPicturePanel extends StatelessWidget {
         child = const ColoredBox(
           color: Color(0x33000000),
           child: Center(
-            child: Icon(Icons.videocam_outlined, color: Colors.white54, size: 40),
+            child: Icon(
+              Icons.videocam_outlined,
+              color: Colors.white54,
+              size: 40,
+            ),
           ),
         );
       } else {
