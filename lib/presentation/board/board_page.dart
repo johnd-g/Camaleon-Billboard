@@ -35,6 +35,10 @@ class _BoardPageState extends State<BoardPage> {
   static const int _maxBlockWidth = 20000;
   static const int _maxPos = 100000;
 
+  /// Hidden exit: 4 taps on the top-left corner (playback only).
+  int _exitCornerTaps = 0;
+  DateTime? _exitCornerTapAt;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +49,22 @@ class _BoardPageState extends State<BoardPage> {
   void dispose() {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  void _onExitCornerTap() {
+    final now = DateTime.now();
+    final last = _exitCornerTapAt;
+    if (last == null || now.difference(last) > const Duration(seconds: 2)) {
+      _exitCornerTaps = 1;
+    } else {
+      _exitCornerTaps += 1;
+    }
+    _exitCornerTapAt = now;
+    if (_exitCornerTaps < 4) return;
+    _exitCornerTaps = 0;
+    _exitCornerTapAt = null;
+    // Hard-quit the process (kiosk / billboard). pop() alone may only background.
+    exit(0);
   }
 
   @override
@@ -593,6 +613,24 @@ class _BoardPageState extends State<BoardPage> {
                         icon: const Icon(Icons.settings, color: Colors.white),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ),
+          // Hidden exit: 4 taps on the top-left corner (not in edit mode).
+          if (!editing)
+            Positioned(
+              left: 0,
+              top: 0,
+              child: SafeArea(
+                right: false,
+                bottom: false,
+                child: SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _onExitCornerTap,
                   ),
                 ),
               ),
