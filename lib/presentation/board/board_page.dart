@@ -308,7 +308,19 @@ class _BoardPageState extends State<BoardPage> {
                                                 '${section.arrangement.offerId}-'
                                                 '${section.arrangement.displayOrder}-'
                                                 '${section.arrangement.displaySeconds}-'
-                                                '${section.arrangement.applyRange(section.items).length}',
+                                                '${section.className}-'
+                                                // Include prices/names — otherwise
+                                                // _BoardBlock keeps a stale child
+                                                // when only ITEM_Sale_Price changes.
+                                                '${Object.hashAll([
+                                                  for (final i in section.items)
+                                                    Object.hash(
+                                                      i.itemId,
+                                                      i.name,
+                                                      i.price,
+                                                      i.description,
+                                                    ),
+                                                ])}',
                                             onSelect: () => _selectBlock(
                                               section.arrangement.id,
                                             ),
