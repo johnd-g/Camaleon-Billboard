@@ -110,14 +110,37 @@ class BillboardController extends ChangeNotifier {
   Timer? _rotationTimer;
   List<int> _rotationPlaylist = const [];
 
+  /// While editing, optionally run the real one-at-a-time rotation preview.
+  bool previewRotation = false;
+
   bool get hasRotationPlaylist => _rotationPlaylist.isNotEmpty;
+
+  int get rotationPlaylistCount {
+    final b = board;
+    if (b == null) return 0;
+    return BoardRotation.playlist(b).length;
+  }
 
   bool isArrangementVisible(ArrangementBlock a) => BoardRotation.isVisible(
         a,
         editing: layoutEditing,
+        previewRotation: previewRotation,
         activeRotationId: activeRotationId,
         hasRotationPlaylist: hasRotationPlaylist,
       );
+
+  void setPreviewRotation(bool enabled) {
+    if (previewRotation == enabled) return;
+    previewRotation = enabled;
+    if (layoutEditing) {
+      if (enabled) {
+        _syncBoardRotation();
+      } else {
+        _stopBoardRotation(notify: false);
+      }
+    }
+    notifyListeners();
+  }
 
   /// First launch: always show DB settings (prefill shared file if found).
   /// Returning users with saved MySQL prefs: auto-connect.
@@ -636,6 +659,7 @@ class BillboardController extends ChangeNotifier {
   void beginLayoutEdit() {
     if (phase != BillboardPhase.ready || board == null) return;
     layoutEditing = true;
+    previewRotation = false;
     creatingBlock = false;
     uploadingBoardBackground = false;
     _clearSessionPending();
@@ -656,6 +680,7 @@ class BillboardController extends ChangeNotifier {
 
   Future<void> cancelLayoutEdit() async {
     layoutEditing = false;
+    previewRotation = false;
     layoutDirty = false;
     savingLayout = false;
     customerDisplay = _customerDisplaySaved;
@@ -986,6 +1011,10 @@ class BillboardController extends ChangeNotifier {
     if (sectionContentChanged) {
       unawaited(_reloadSectionContent(arrangementId));
     }
+    if (previewRotation &&
+        (displaySeconds != null || displayOrder != null || contentType != null)) {
+      _syncBoardRotation();
+    }
   }
 
   Future<void> _reloadSectionContent(int arrangementId) async {
@@ -1304,6 +1333,11 @@ class BillboardController extends ChangeNotifier {
   Future<int?> addOfferBlock({
     required int offerId,
     required String offerName,
+    int? displayOrder,
+    int displaySeconds = 8,
+    int? xDistance,
+    int? yDistance,
+    int? maxWidth,
   }) async {
     final b = board;
     final name = computerName.trim();
@@ -1315,6 +1349,7 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final slot = BoardRotation.sharedSlot(b);
       final index = b.sections.length + b.pictures.length;
       final id = _allocTempId();
       final title = offerName.trim().isEmpty ? 'SPECIAL' : offerName.trim();
@@ -1323,9 +1358,9 @@ class BillboardController extends ChangeNotifier {
         compName: name,
         screenName: title,
         classId: 0,
-        xDistance: 40 + (index % 4) * 36,
-        yDistance: 40 + index * 36,
-        maxWidth: 600,
+        xDistance: xDistance ?? slot?.$1 ?? 40,
+        yDistance: yDistance ?? slot?.$2 ?? 40,
+        maxWidth: maxWidth ?? slot?.$3 ?? 600,
         mainBackColor: b.mainBackColor,
         classForeColor: 15,
         classBackColor: 2,
@@ -1333,9 +1368,8 @@ class BillboardController extends ChangeNotifier {
         itemBackColor: 0,
         contentType: ArrangementContentType.offer,
         offerId: offerId,
-        displayOrder: index + 1,
-        // Offers default into the rotation playlist for supermarket TVs.
-        displaySeconds: 8,
+        displayOrder: displayOrder ?? (index + 1),
+        displaySeconds: displaySeconds.clamp(0, 3600),
         usePicture: false,
       );
       final section = await _billboardRepo.fillSectionView(
@@ -1347,6 +1381,7 @@ class BillboardController extends ChangeNotifier {
       _sessionDeletedIds.remove(id);
       layoutDirty = true;
       creatingBlock = false;
+      if (previewRotation) _syncBoardRotation();
       notifyListeners();
       return id;
     } catch (e, st) {
@@ -1355,6 +1390,82 @@ class BillboardController extends ChangeNotifier {
       creatingBlock = false;
       notifyListeners();
       return null;
+    }
+  }
+
+  /// One-tap supermarket setup: several OFFERs stacked in the same slot.
+  ///
+  /// All share x/y/width and enter the rotation playlist with [secondsPerSlide].
+  Future<List<int>> addRotatingOfferBlocks({
+    required List<SpecialOfferOption> offers,
+    int secondsPerSlide = 8,
+  }) async {
+    final b = board;
+    if (b == null || !layoutEditing) return const [];
+    if (offers.isEmpty) return const [];
+
+    creatingBlock = true;
+    errorMessage = null;
+    notifyListeners();
+
+    final slot = BoardRotation.sharedSlot(b);
+    final x = slot?.$1 ?? 40;
+    final y = slot?.$2 ?? 40;
+    final w = slot?.$3 ?? 600;
+    final orderBase = BoardRotation.playlist(b).length;
+    final secs = secondsPerSlide.clamp(1, 3600);
+    final created = <int>[];
+
+    try {
+      var working = board!;
+      for (var i = 0; i < offers.length; i++) {
+        final opt = offers[i];
+        if (opt.id <= 0) continue;
+        final id = _allocTempId();
+        final title = opt.name.trim().isEmpty ? 'SPECIAL' : opt.name.trim();
+        final block = ArrangementBlock(
+          id: id,
+          compName: computerName.trim(),
+          screenName: title,
+          classId: 0,
+          xDistance: x,
+          yDistance: y,
+          maxWidth: w,
+          mainBackColor: working.mainBackColor,
+          classForeColor: 15,
+          classBackColor: 2,
+          itemForeColor: 15,
+          itemBackColor: 0,
+          contentType: ArrangementContentType.offer,
+          offerId: opt.id,
+          displayOrder: orderBase + i + 1,
+          displaySeconds: secs,
+          usePicture: false,
+        );
+        final section = await _billboardRepo.fillSectionView(
+          block,
+          sortAlphabetical: sortAlphabetical,
+        );
+        working = working.copyWith(sections: [...working.sections, section]);
+        board = working;
+        _sessionDeletedIds.remove(id);
+        created.add(id);
+      }
+      layoutDirty = true;
+      // Stacked slides are easiest to verify with live preview on.
+      previewRotation = created.length > 1;
+      creatingBlock = false;
+      if (previewRotation) {
+        _syncBoardRotation();
+      }
+      notifyListeners();
+      return created;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Add rotating offers failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      creatingBlock = false;
+      notifyListeners();
+      return created;
     }
   }
 
@@ -1570,6 +1681,7 @@ class BillboardController extends ChangeNotifier {
     }
     if (!layoutDirty) {
       layoutEditing = false;
+      previewRotation = false;
       notifyListeners();
       if (phase == BillboardPhase.ready) {
         _scheduleRefresh();
@@ -1598,6 +1710,7 @@ class BillboardController extends ChangeNotifier {
         _clearSessionPending();
         layoutDirty = false;
         layoutEditing = false;
+        previewRotation = false;
         savingLayout = false;
         notifyListeners();
 
@@ -1787,7 +1900,8 @@ class BillboardController extends ChangeNotifier {
 
   /// Rebuilds the display_order / display_seconds playlist and starts the timer.
   void _syncBoardRotation() {
-    if (layoutEditing || phase != BillboardPhase.ready) {
+    final allowWhileEditing = layoutEditing && previewRotation;
+    if ((!allowWhileEditing && layoutEditing) || phase != BillboardPhase.ready) {
       _stopBoardRotation();
       return;
     }
@@ -1826,7 +1940,8 @@ class BillboardController extends ChangeNotifier {
   void _scheduleNextRotationTick() {
     _rotationTimer?.cancel();
     final b = board;
-    if (b == null || layoutEditing || _rotationPlaylist.isEmpty) return;
+    if (b == null || _rotationPlaylist.isEmpty) return;
+    if (layoutEditing && !previewRotation) return;
 
     final id = activeRotationId ?? _rotationPlaylist.first;
     ArrangementBlock? current;
@@ -1839,7 +1954,8 @@ class BillboardController extends ChangeNotifier {
     current ??= BoardRotation.playlist(b).first;
     final secs = current.displaySeconds.clamp(1, 3600);
     _rotationTimer = Timer(Duration(seconds: secs), () {
-      if (layoutEditing || board == null) return;
+      if (board == null) return;
+      if (layoutEditing && !previewRotation) return;
       if (_rotationPlaylist.isEmpty) return;
       final i = _rotationPlaylist.indexOf(activeRotationId ?? -1);
       final nextIndex = i < 0 ? 0 : (i + 1) % _rotationPlaylist.length;

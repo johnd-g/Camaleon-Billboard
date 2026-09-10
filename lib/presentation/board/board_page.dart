@@ -473,6 +473,7 @@ class _BoardPageState extends State<BoardPage> {
               onClearBlockMedia: _clearSelectedBlockMedia,
               onAddMenuSection: _addMenuSection,
               onAddOfferSection: _addOfferSection,
+              onAddRotatingOffers: _addRotatingOffers,
               onAddPhotoBlock: _addPhotoBlock,
               onDeleteBlock: _deleteSelectedBlock,
               creatingBlock: c.creatingBlock,
@@ -832,6 +833,64 @@ class _BoardPageState extends State<BoardPage> {
     setState(() => _selectedId = id);
   }
 
+  Future<void> _addRotatingOffers() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final offers = await c.listSpecialOffers(forceRefresh: true);
+    if (!mounted) return;
+    if (offers.isEmpty) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            c.errorMessage ?? 'No specials found in POS (dates_special)',
+          ),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+
+    final result = await showDialog<({List<SpecialOfferOption> offers, int seconds})>(
+      context: context,
+      builder: (ctx) => _RotatingOffersDialog(offers: offers),
+    );
+    if (result == null || !mounted) return;
+    if (result.offers.isEmpty) return;
+
+    final ids = await c.addRotatingOfferBlocks(
+      offers: result.offers,
+      secondsPerSlide: result.seconds,
+    );
+    if (!mounted) return;
+    if (ids.isEmpty) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not add rotating specials'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+    setState(() => _selectedId = ids.last);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          ids.length == 1
+              ? 'Added 1 special — turn on Preview rotation or add another slide'
+              : 'Added ${ids.length} specials in one spot · Preview is on',
+        ),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   Future<void> _addPhotoBlock() async {
     final c = context.read<BillboardController>();
     final messenger = ScaffoldMessenger.of(context);
@@ -1147,6 +1206,7 @@ class _EditChrome extends StatelessWidget {
     required this.onClearBlockMedia,
     required this.onAddMenuSection,
     required this.onAddOfferSection,
+    required this.onAddRotatingOffers,
     required this.onAddPhotoBlock,
     required this.onDeleteBlock,
     required this.onStylePatch,
@@ -1175,6 +1235,7 @@ class _EditChrome extends StatelessWidget {
   final VoidCallback onClearBlockMedia;
   final VoidCallback onAddMenuSection;
   final VoidCallback onAddOfferSection;
+  final VoidCallback onAddRotatingOffers;
   final VoidCallback onAddPhotoBlock;
   final VoidCallback onDeleteBlock;
   final StylePatch onStylePatch;
@@ -1235,6 +1296,7 @@ class _EditChrome extends StatelessWidget {
       onClearBlockMedia: onClearBlockMedia,
       onAddMenuSection: onAddMenuSection,
       onAddOfferSection: onAddOfferSection,
+      onAddRotatingOffers: onAddRotatingOffers,
       onAddPhotoBlock: onAddPhotoBlock,
       onDeleteBlock: onDeleteBlock,
       creatingBlock: creatingBlock,
@@ -1740,6 +1802,149 @@ class _ResizeLabel extends StatelessWidget {
           fontWeight: FontWeight.w700,
         ),
       ),
+    );
+  }
+}
+
+/// Multi-select POS specials + seconds-per-slide for one-tap rotation setup.
+class _RotatingOffersDialog extends StatefulWidget {
+  const _RotatingOffersDialog({required this.offers});
+
+  final List<SpecialOfferOption> offers;
+
+  @override
+  State<_RotatingOffersDialog> createState() => _RotatingOffersDialogState();
+}
+
+class _RotatingOffersDialogState extends State<_RotatingOffersDialog> {
+  final Set<int> _selected = {};
+  int _seconds = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF121824),
+      title: const Text(
+        'Rotating specials',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: SizedBox(
+        width: 440,
+        height: 480,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Pick 2 or more. They stack in the same place and take turns.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Text(
+                  'Seconds each',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => setState(
+                    () => _seconds = (_seconds - 1).clamp(1, 120),
+                  ),
+                  icon: const Icon(Icons.remove_circle_outline,
+                      color: Colors.white70),
+                ),
+                Text(
+                  '$_seconds s',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(
+                    () => _seconds = (_seconds + 1).clamp(1, 120),
+                  ),
+                  icon: const Icon(Icons.add_circle_outline,
+                      color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.separated(
+                itemCount: widget.offers.length,
+                separatorBuilder: (_, _) => Divider(
+                  height: 1,
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+                itemBuilder: (_, i) {
+                  final opt = widget.offers[i];
+                  final checked = _selected.contains(opt.id);
+                  return CheckboxListTile(
+                    value: checked,
+                    activeColor: CamaleonColors.green,
+                    checkColor: Colors.black,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(
+                      opt.name.trim().isEmpty
+                          ? 'Special #${opt.id}'
+                          : opt.name.trim(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      [
+                        'ID ${opt.id}',
+                        if (opt.subtitle.isNotEmpty) opt.subtitle,
+                      ].join(' · '),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 12,
+                      ),
+                    ),
+                    onChanged: (v) {
+                      setState(() {
+                        if (v == true) {
+                          _selected.add(opt.id);
+                        } else {
+                          _selected.remove(opt.id);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _selected.isEmpty
+              ? null
+              : () {
+                  final picked = [
+                    for (final o in widget.offers)
+                      if (_selected.contains(o.id)) o,
+                  ];
+                  Navigator.of(context).pop((offers: picked, seconds: _seconds));
+                },
+          child: Text(
+            _selected.isEmpty
+                ? 'Add'
+                : 'Add ${_selected.length} · ${_seconds}s each',
+          ),
+        ),
+      ],
     );
   }
 }

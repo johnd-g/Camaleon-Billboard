@@ -96,6 +96,7 @@ void main() {
       BoardRotation.isVisible(
         playlist.first,
         editing: false,
+        previewRotation: false,
         activeRotationId: 1,
         hasRotationPlaylist: true,
       ),
@@ -105,6 +106,7 @@ void main() {
       BoardRotation.isVisible(
         playlist.last,
         editing: false,
+        previewRotation: false,
         activeRotationId: 1,
         hasRotationPlaylist: true,
       ),
@@ -114,10 +116,31 @@ void main() {
       BoardRotation.isVisible(
         board.sections[2].arrangement,
         editing: false,
+        previewRotation: false,
         activeRotationId: 1,
         hasRotationPlaylist: true,
       ),
       isTrue,
+    );
+    expect(
+      BoardRotation.isVisible(
+        playlist.last,
+        editing: true,
+        previewRotation: false,
+        activeRotationId: 1,
+        hasRotationPlaylist: true,
+      ),
+      isTrue,
+    );
+    expect(
+      BoardRotation.isVisible(
+        playlist.last,
+        editing: true,
+        previewRotation: true,
+        activeRotationId: 1,
+        hasRotationPlaylist: true,
+      ),
+      isFalse,
     );
   });
 }

@@ -27,13 +27,23 @@ abstract final class BoardRotation {
     return rotating;
   }
 
+  /// Shared x/y/width of the first rotating block (for stacking new slides).
+  static (int x, int y, int width)? sharedSlot(BillboardBoard board) {
+    final list = playlist(board);
+    if (list.isEmpty) return null;
+    final a = list.first;
+    return (a.xDistance, a.yDistance, a.maxWidth);
+  }
+
   static bool isVisible(
     ArrangementBlock a, {
     required bool editing,
+    required bool previewRotation,
     required int? activeRotationId,
     required bool hasRotationPlaylist,
   }) {
-    if (editing) return true;
+    // Edit mode shows everything unless the user turns on live preview.
+    if (editing && !previewRotation) return true;
     if (a.isBoardBackground) return true;
     if (a.displaySeconds <= 0) return true;
     if (!hasRotationPlaylist) return true;

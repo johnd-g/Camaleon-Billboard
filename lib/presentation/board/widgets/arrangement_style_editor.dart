@@ -68,6 +68,7 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.onClearBlockMedia,
     this.onAddMenuSection,
     this.onAddOfferSection,
+    this.onAddRotatingOffers,
     this.onAddPhotoBlock,
     this.onDeleteBlock,
     this.creatingBlock = false,
@@ -94,6 +95,7 @@ class ArrangementStyleEditor extends StatelessWidget {
   final VoidCallback? onClearBlockMedia;
   final VoidCallback? onAddMenuSection;
   final VoidCallback? onAddOfferSection;
+  final VoidCallback? onAddRotatingOffers;
   final VoidCallback? onAddPhotoBlock;
   final VoidCallback? onDeleteBlock;
   final bool creatingBlock;
@@ -117,8 +119,11 @@ class ArrangementStyleEditor extends StatelessWidget {
             creating: creatingBlock,
             onAddMenu: onAddMenuSection,
             onAddOffer: onAddOfferSection,
+            onAddRotatingOffers: onAddRotatingOffers,
             onAddPhoto: onAddPhotoBlock,
           ),
+          const SizedBox(height: 12),
+          const _RotationEasyCard(),
           const SizedBox(height: 12),
           _CustomerDisplayCard(
             enabled: customerDisplay,
@@ -153,6 +158,8 @@ class ArrangementStyleEditor extends StatelessWidget {
                   : picture!.arrangement.screenName),
           isPhoto: picture != null,
         ),
+        const SizedBox(height: 10),
+        const _RotationEasyCard(),
         if (picture != null) ...[
           const SizedBox(height: 10),
           _BackgroundToggle(
@@ -187,7 +194,7 @@ class ArrangementStyleEditor extends StatelessWidget {
           _ContentTypeCard(
             arrangement: a,
             onPatch: onPatch,
-            showRange: true,
+            showRange: a.contentType == ArrangementContentType.menu,
           ),
           const SizedBox(height: 8),
           _BorderControls(
@@ -433,12 +440,14 @@ class _AddToBoardCard extends StatelessWidget {
     required this.creating,
     this.onAddMenu,
     this.onAddOffer,
+    this.onAddRotatingOffers,
     this.onAddPhoto,
   });
 
   final bool creating;
   final VoidCallback? onAddMenu;
   final VoidCallback? onAddOffer;
+  final VoidCallback? onAddRotatingOffers;
   final VoidCallback? onAddPhoto;
 
   @override
@@ -458,7 +467,7 @@ class _AddToBoardCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Create a menu, POS special, or photo — then drag it into place.',
+            'Promo TVs: start with rotating specials. Menus stay always on.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.55),
               fontSize: 12,
@@ -467,18 +476,27 @@ class _AddToBoardCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _CreateAction(
+            icon: Icons.slideshow_rounded,
+            title: 'Rotating specials',
+            subtitle: 'Pick 2+ · same spot · they take turns',
+            primary: true,
+            busy: creating,
+            onTap: onAddRotatingOffers,
+          ),
+          const SizedBox(height: 8),
+          _CreateAction(
             icon: Icons.restaurant_menu_rounded,
             title: 'Menu section',
-            subtitle: 'Prices from a POS class',
-            primary: true,
+            subtitle: 'Always-on class from POS',
+            primary: false,
             busy: creating,
             onTap: onAddMenu,
           ),
           const SizedBox(height: 8),
           _CreateAction(
             icon: Icons.local_offer_outlined,
-            title: 'Special / offer',
-            subtitle: 'Pick a dates_special from POS',
+            title: 'One special',
+            subtitle: 'Add a single OFFER to the board',
             primary: false,
             busy: creating,
             onTap: onAddOffer,
@@ -487,7 +505,7 @@ class _AddToBoardCard extends StatelessWidget {
           _CreateAction(
             icon: Icons.add_photo_alternate_outlined,
             title: 'Photo or video',
-            subtitle: 'Still image or looping clip',
+            subtitle: 'Image or clip on the board',
             primary: false,
             busy: creating,
             onTap: onAddPhoto,
@@ -503,7 +521,7 @@ class _AddToBoardCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Tap anything on the board to edit it',
+                  'Tap the board to edit a block',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.55),
                     fontSize: 12,
@@ -512,6 +530,112 @@ class _AddToBoardCard extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RotationEasyCard extends StatelessWidget {
+  const _RotationEasyCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<BillboardController>();
+    final count = c.rotationPlaylistCount;
+    final preview = c.previewRotation;
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.slideshow_rounded,
+                color: CamaleonColors.greenSoft,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Rotation',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Text(
+                count == 0
+                    ? 'off'
+                    : (count == 1 ? '1 slide' : '$count slides'),
+                style: TextStyle(
+                  color: count == 0
+                      ? Colors.white.withValues(alpha: 0.4)
+                      : CamaleonColors.greenSoft,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            count == 0
+                ? 'No playlist yet. Use Rotating specials above.'
+                : count == 1
+                    ? 'Need one more rotating block to switch.'
+                    : preview
+                        ? 'Live preview is running on the board.'
+                        : 'Preview to watch slides take turns.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+          if (count >= 1) ...[
+            const SizedBox(height: 12),
+            Material(
+              color: preview
+                  ? CamaleonColors.green.withValues(alpha: 0.22)
+                  : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => c.setPreviewRotation(!preview),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        preview
+                            ? Icons.pause_circle_filled_rounded
+                            : Icons.play_circle_filled_rounded,
+                        color: preview
+                            ? CamaleonColors.green
+                            : Colors.white.withValues(alpha: 0.75),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          preview ? 'Stop preview' : 'Preview rotation',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1167,7 +1291,8 @@ class _OfferPickerRow extends StatelessWidget {
       return;
     }
 
-    final picked = await showDialog<SpecialOfferOption>(
+    // null = Cancel (no change). 0 = clear selection. >0 = pick that special.
+    final pickedId = await showDialog<int>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
@@ -1180,13 +1305,42 @@ class _OfferPickerRow extends StatelessWidget {
             width: 420,
             height: 420,
             child: ListView.separated(
-              itemCount: offers.length,
+              itemCount: offers.length + 1,
               separatorBuilder: (_, _) => Divider(
                 height: 1,
                 color: Colors.white.withValues(alpha: 0.08),
               ),
               itemBuilder: (_, i) {
-                final opt = offers[i];
+                if (i == 0) {
+                  final cleared = arrangement.offerId <= 0;
+                  return ListTile(
+                    selected: cleared,
+                    selectedTileColor:
+                        CamaleonColors.green.withValues(alpha: 0.15),
+                    leading: Icon(
+                      Icons.block_flipped,
+                      color: cleared
+                          ? CamaleonColors.green
+                          : Colors.white.withValues(alpha: 0.55),
+                    ),
+                    title: const Text(
+                      'No special',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Clear the offer selection',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 12,
+                      ),
+                    ),
+                    onTap: () => Navigator.of(ctx).pop(0),
+                  );
+                }
+                final opt = offers[i - 1];
                 final selected = opt.id == arrangement.offerId;
                 return ListTile(
                   selected: selected,
@@ -1216,12 +1370,17 @@ class _OfferPickerRow extends StatelessWidget {
                       fontSize: 12,
                     ),
                   ),
-                  onTap: () => Navigator.of(ctx).pop(opt),
+                  onTap: () => Navigator.of(ctx).pop(opt.id),
                 );
               },
             ),
           ),
           actions: [
+            if (arrangement.offerId > 0)
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(0),
+                child: const Text('Clear'),
+              ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Cancel'),
@@ -1230,8 +1389,8 @@ class _OfferPickerRow extends StatelessWidget {
         );
       },
     );
-    if (picked == null || !context.mounted) return;
-    onPatch(offerId: picked.id);
+    if (pickedId == null || !context.mounted) return;
+    onPatch(offerId: pickedId);
   }
 
   @override
