@@ -14,8 +14,7 @@ class AppFailure {
             lower.contains('bb_arrangement'))) {
       return 'This MySQL is missing newer bb_arrangement columns '
           '(content_type, media_*, borders, …). '
-          'Update Camaleon POS so it can add them — '
-          'this app never changes the database schema.';
+          'Update Camaleon POS so it can add them.';
     }
 
     if (lower.contains('access denied') ||
