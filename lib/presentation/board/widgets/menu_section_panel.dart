@@ -32,13 +32,37 @@ class MenuSectionPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           // Full-bleed header — no side padding (avoids a “border” from item fill).
-          _ClassHeader(arrangement: a, title: section.className),
+          _ClassHeader(
+            arrangement: a,
+            title: section.className,
+            isOffer: a.contentType == ArrangementContentType.offer,
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (visible.isEmpty &&
+                    a.contentType == ArrangementContentType.offer)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      a.offerId <= 0
+                          ? 'Set Offer ID from POS specials'
+                          : 'No items in this special',
+                      textAlign: TextAlign.center,
+                      style: BoardFonts.apply(
+                        a.itemFontName,
+                        TextStyle(
+                          color: QbColors.of(a.itemForeColor)
+                              .withValues(alpha: 0.7),
+                          fontSize: a.itemFontSize.toDouble().clamp(10, 48),
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ),
                 for (final item in visible) ...[
                   _ItemRow(
                     arrangement: a,
@@ -65,10 +89,15 @@ class MenuSectionPanel extends StatelessWidget {
 }
 
 class _ClassHeader extends StatelessWidget {
-  const _ClassHeader({required this.arrangement, required this.title});
+  const _ClassHeader({
+    required this.arrangement,
+    required this.title,
+    this.isOffer = false,
+  });
 
   final ArrangementBlock arrangement;
   final String title;
+  final bool isOffer;
 
   @override
   Widget build(BuildContext context) {
@@ -86,10 +115,24 @@ class _ClassHeader extends StatelessWidget {
       color: QbColors.of(a.classBackColor),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        child: Text(
-          title,
-          textAlign: TextAlign.center,
-          style: style,
+        child: Column(
+          children: [
+            if (isOffer)
+              Text(
+                'SPECIAL',
+                textAlign: TextAlign.center,
+                style: style.copyWith(
+                  fontSize: (a.classFontSize * 0.45).clamp(9, 18),
+                  letterSpacing: 2.2,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: style,
+            ),
+          ],
         ),
       ),
     );

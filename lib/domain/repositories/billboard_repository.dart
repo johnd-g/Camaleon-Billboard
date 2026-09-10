@@ -19,6 +19,18 @@ abstract class BillboardRepository {
     required bool sortAlphabetical,
   });
 
+  /// Items for a daily special (`offer_id` → `dates_special.Id` / `day_specials.PR_ID`).
+  Future<MenuSection> fillOfferView(
+    ArrangementBlock block, {
+    required bool sortAlphabetical,
+  });
+
+  /// MENU → [fillClassView], OFFER → [fillOfferView].
+  Future<MenuSection> fillSectionView(
+    ArrangementBlock block, {
+    required bool sortAlphabetical,
+  });
+
   /// Full board load (menus + pictures with blobs).
   Future<BillboardBoard> loadBoard({
     required String compName,
@@ -94,6 +106,9 @@ abstract class BillboardRepository {
 
   /// POS `it_titemclass` rows for picking a new menu section.
   Future<List<MenuClassOption>> listMenuClasses();
+
+  /// POS `dates_special` rows for picking an OFFER / special block.
+  Future<List<SpecialOfferOption>> listSpecialOffers();
 
   /// Inserts a new menu block (`usepic=0`) and returns its `ID`.
   Future<int> insertMenuArrangement({

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/core/utils/board_fonts.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
+import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/customer_order_preview.dart';
 
 typedef StylePatch = void Function({
@@ -65,6 +67,7 @@ class ArrangementStyleEditor extends StatelessWidget {
     this.onPickBlockVideo,
     this.onClearBlockMedia,
     this.onAddMenuSection,
+    this.onAddOfferSection,
     this.onAddPhotoBlock,
     this.onDeleteBlock,
     this.creatingBlock = false,
@@ -90,6 +93,7 @@ class ArrangementStyleEditor extends StatelessWidget {
   final VoidCallback? onPickBlockVideo;
   final VoidCallback? onClearBlockMedia;
   final VoidCallback? onAddMenuSection;
+  final VoidCallback? onAddOfferSection;
   final VoidCallback? onAddPhotoBlock;
   final VoidCallback? onDeleteBlock;
   final bool creatingBlock;
@@ -112,6 +116,7 @@ class ArrangementStyleEditor extends StatelessWidget {
           _AddToBoardCard(
             creating: creatingBlock,
             onAddMenu: onAddMenuSection,
+            onAddOffer: onAddOfferSection,
             onAddPhoto: onAddPhotoBlock,
           ),
           const SizedBox(height: 12),
@@ -427,11 +432,13 @@ class _AddToBoardCard extends StatelessWidget {
   const _AddToBoardCard({
     required this.creating,
     this.onAddMenu,
+    this.onAddOffer,
     this.onAddPhoto,
   });
 
   final bool creating;
   final VoidCallback? onAddMenu;
+  final VoidCallback? onAddOffer;
   final VoidCallback? onAddPhoto;
 
   @override
@@ -451,7 +458,7 @@ class _AddToBoardCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Create a menu section or photo, then drag it into place.',
+            'Create a menu, POS special, or photo — then drag it into place.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.55),
               fontSize: 12,
@@ -466,6 +473,15 @@ class _AddToBoardCard extends StatelessWidget {
             primary: true,
             busy: creating,
             onTap: onAddMenu,
+          ),
+          const SizedBox(height: 8),
+          _CreateAction(
+            icon: Icons.local_offer_outlined,
+            title: 'Special / offer',
+            subtitle: 'Pick a dates_special from POS',
+            primary: false,
+            busy: creating,
+            onTap: onAddOffer,
           ),
           const SizedBox(height: 8),
           _CreateAction(
@@ -1032,30 +1048,15 @@ class _ContentTypeCard extends StatelessWidget {
           ),
           if (a.contentType == ArrangementContentType.offer) ...[
             const SizedBox(height: 10),
-            _StepperRow(
-              icon: Icons.local_offer_outlined,
-              label: 'Offer ID',
-              valueLabel: '${a.offerId}',
-              unit: '',
-              onMinus: () => onPatch(offerId: a.offerId - 1),
-              onPlus: () => onPatch(offerId: a.offerId + 1),
-              onMinusBig: () => onPatch(offerId: a.offerId - 10),
-              onPlusBig: () => onPatch(offerId: a.offerId + 10),
-              embedded: true,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Special offer id from POS',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.4),
-                fontSize: 11,
-              ),
+            _OfferPickerRow(
+              arrangement: a,
+              onPatch: onPatch,
             ),
           ],
           const SizedBox(height: 10),
           _StepperRow(
             icon: Icons.reorder_rounded,
-            label: 'Order',
+            label: 'Rotation order',
             valueLabel: '${a.displayOrder}',
             unit: '',
             onMinus: () => onPatch(displayOrder: a.displayOrder - 1),
@@ -1066,7 +1067,7 @@ class _ContentTypeCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Lower numbers appear first',
+            'Sequence among blocks that rotate (lower first)',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.4),
               fontSize: 11,
@@ -1086,7 +1087,10 @@ class _ContentTypeCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'How long this stays on when rotating · 0 = no timer',
+            a.displaySeconds <= 0
+                ? '0 = always visible. Set > 0 to enter the rotation playlist.'
+                : 'On-screen time, then the next block with Seconds > 0 appears. '
+                    'Needs at least one other rotating block.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.4),
               fontSize: 11,
@@ -1120,7 +1124,9 @@ class _ContentTypeCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               a.rangeCount <= 0
-                  ? 'Show every item in this class'
+                  ? (a.contentType == ArrangementContentType.offer
+                      ? 'Show every item in this special'
+                      : 'Show every item in this class')
                   : 'Show items ${a.rangeOffset + 1}–${a.rangeOffset + a.rangeCount} '
                       '(skip ${a.rangeOffset}, take ${a.rangeCount})',
               style: TextStyle(
@@ -1131,6 +1137,167 @@ class _ContentTypeCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _OfferPickerRow extends StatelessWidget {
+  const _OfferPickerRow({
+    required this.arrangement,
+    required this.onPatch,
+  });
+
+  final ArrangementBlock arrangement;
+  final StylePatch onPatch;
+
+  Future<void> _pick(BuildContext context) async {
+    final c = context.read<BillboardController>();
+    final offers = await c.listSpecialOffers(forceRefresh: true);
+    if (!context.mounted) return;
+
+    if (offers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            c.errorMessage ?? 'No specials found in POS (dates_special)',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final picked = await showDialog<SpecialOfferOption>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF121824),
+          title: const Text(
+            'Pick POS special',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 420,
+            height: 420,
+            child: ListView.separated(
+              itemCount: offers.length,
+              separatorBuilder: (_, _) => Divider(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+              itemBuilder: (_, i) {
+                final opt = offers[i];
+                final selected = opt.id == arrangement.offerId;
+                return ListTile(
+                  selected: selected,
+                  selectedTileColor: CamaleonColors.green.withValues(alpha: 0.15),
+                  leading: Icon(
+                    Icons.local_offer_outlined,
+                    color: selected
+                        ? CamaleonColors.green
+                        : Colors.white.withValues(alpha: 0.55),
+                  ),
+                  title: Text(
+                    opt.name.trim().isEmpty
+                        ? 'Special #${opt.id}'
+                        : opt.name.trim(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    [
+                      'ID ${opt.id}',
+                      if (opt.subtitle.isNotEmpty) opt.subtitle,
+                    ].join(' · '),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 12,
+                    ),
+                  ),
+                  onTap: () => Navigator.of(ctx).pop(opt),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    if (picked == null || !context.mounted) return;
+    onPatch(offerId: picked.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<BillboardController>();
+    final label = c.specialOfferLabel(arrangement.offerId);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            onTap: () => _pick(context),
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.local_offer_outlined,
+                    color: CamaleonColors.greenSoft,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'POS special',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.45),
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white.withValues(alpha: 0.45),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Shows name + items from that special in POS',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.4),
+            fontSize: 11,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1320,7 +1487,7 @@ class _MediaControls extends StatelessWidget {
           const _Divider(),
           _StepperRow(
             icon: Icons.reorder_rounded,
-            label: 'Order',
+            label: 'Rotation order',
             valueLabel: '${a.displayOrder}',
             unit: '',
             onMinus: () => onPatch(displayOrder: a.displayOrder - 1),
@@ -1328,6 +1495,14 @@ class _MediaControls extends StatelessWidget {
             onMinusBig: () => onPatch(displayOrder: a.displayOrder - 5),
             onPlusBig: () => onPatch(displayOrder: a.displayOrder + 5),
             embedded: true,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Sequence among blocks that rotate (lower first)',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11,
+            ),
           ),
           const _Divider(),
           _StepperRow(
@@ -1340,6 +1515,17 @@ class _MediaControls extends StatelessWidget {
             onMinusBig: () => onPatch(displaySeconds: a.displaySeconds - 5),
             onPlusBig: () => onPatch(displaySeconds: a.displaySeconds + 5),
             embedded: true,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            a.displaySeconds <= 0
+                ? '0 = always visible. Set > 0 to enter the rotation playlist.'
+                : 'On-screen time, then the next block with Seconds > 0 appears. '
+                    'Needs at least one other rotating block.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11,
+            ),
           ),
           if (a.mediaType == ArrangementMediaType.video) ...[
             const SizedBox(height: 8),

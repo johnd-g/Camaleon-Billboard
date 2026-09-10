@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
+import 'package:camaleon_billboard/core/utils/board_rotation.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
+import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 
 void main() {
   test('DbConnectionQr parses classic payload', () {
@@ -35,5 +37,87 @@ void main() {
     );
     final items = List<int>.generate(10, (i) => i + 1);
     expect(block.applyRange(items), [5, 6, 7, 8, 9, 10]);
+  });
+
+  test('BoardRotation playlist sorts by display_order', () {
+    const board = BillboardBoard(
+      compName: 'TV1',
+      sections: [
+        MenuSection(
+          arrangement: ArrangementBlock(
+            id: 2,
+            compName: 'TV1',
+            displayOrder: 20,
+            displaySeconds: 8,
+          ),
+          className: 'B',
+          items: [],
+        ),
+        MenuSection(
+          arrangement: ArrangementBlock(
+            id: 1,
+            compName: 'TV1',
+            displayOrder: 10,
+            displaySeconds: 5,
+            contentType: ArrangementContentType.offer,
+            offerId: 3,
+          ),
+          className: 'A',
+          items: [],
+        ),
+        MenuSection(
+          arrangement: ArrangementBlock(
+            id: 3,
+            compName: 'TV1',
+            displayOrder: 5,
+            displaySeconds: 0,
+          ),
+          className: 'Static',
+          items: [],
+        ),
+      ],
+      pictures: [
+        PictureBlock(
+          arrangement: ArrangementBlock(
+            id: 9,
+            compName: 'TV1',
+            displayOrder: 15,
+            displaySeconds: 6,
+            usePicture: true,
+          ),
+        ),
+      ],
+    );
+
+    final playlist = BoardRotation.playlist(board);
+    expect(playlist.map((a) => a.id).toList(), [1, 9, 2]);
+
+    expect(
+      BoardRotation.isVisible(
+        playlist.first,
+        editing: false,
+        activeRotationId: 1,
+        hasRotationPlaylist: true,
+      ),
+      isTrue,
+    );
+    expect(
+      BoardRotation.isVisible(
+        playlist.last,
+        editing: false,
+        activeRotationId: 1,
+        hasRotationPlaylist: true,
+      ),
+      isFalse,
+    );
+    expect(
+      BoardRotation.isVisible(
+        board.sections[2].arrangement,
+        editing: false,
+        activeRotationId: 1,
+        hasRotationPlaylist: true,
+      ),
+      isTrue,
+    );
   });
 }

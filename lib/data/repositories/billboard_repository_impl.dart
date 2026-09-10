@@ -217,6 +217,118 @@ ORDER BY $orderBy
     );
   }
 
+  @override
+  Future<MenuSection> fillOfferView(
+    ArrangementBlock block, {
+    required bool sortAlphabetical,
+  }) async {
+    final offerId = block.offerId;
+    if (offerId <= 0) {
+      final title = block.screenName.trim().isEmpty
+          ? 'OFFER'
+          : block.screenName.trim();
+      return MenuSection(
+        arrangement: block,
+        className: block.classUpperCase ? title.toUpperCase() : title,
+        items: const [],
+      );
+    }
+
+    final orderBy = sortAlphabetical
+        ? 'it_titem.ITEM_Description ASC'
+        : 'it_titem.Prioridad DESC, it_titem.ITEM_Description ASC';
+
+    // offer_id = dates_special.Id = day_specials.PR_ID (POS specials).
+    final sql = '''
+SELECT
+  IFNULL(ds.descripcion, '') AS special_name,
+  it_titem.ITEM_ID,
+  it_titem.ITEM_Description,
+  it_titem.ITEM_Screen_Name,
+  day_specials.item_Price AS ITEM_Sale_Price,
+  it_titem.desc_atmenu,
+  it_titem.Prioridad
+FROM day_specials
+INNER JOIN it_titem
+  ON it_titem.ITEM_ID = day_specials.item_id
+LEFT JOIN dates_special ds
+  ON ds.Id = day_specials.PR_ID
+WHERE day_specials.PR_ID = ?
+  AND IFNULL(day_specials.item_dis, 0) <> 1
+  AND IFNULL(day_specials.class_dis, 0) <> 1
+  AND IFNULL(it_titem.ITEM_Show, 1) = 1
+ORDER BY $orderBy
+''';
+
+    Results rows;
+    try {
+      rows = await _client.query(sql, [offerId]);
+    } catch (_) {
+      // Older schemas without Prioridad / descripcion — still try a minimal join.
+      rows = await _client.query('''
+SELECT
+  IFNULL(ds.descripcion, '') AS special_name,
+  it_titem.ITEM_ID,
+  it_titem.ITEM_Description,
+  it_titem.ITEM_Screen_Name,
+  day_specials.item_Price AS ITEM_Sale_Price,
+  it_titem.desc_atmenu
+FROM day_specials
+INNER JOIN it_titem
+  ON it_titem.ITEM_ID = day_specials.item_id
+LEFT JOIN dates_special ds
+  ON ds.Id = day_specials.PR_ID
+WHERE day_specials.PR_ID = ?
+  AND IFNULL(day_specials.item_dis, 0) <> 1
+  AND IFNULL(day_specials.class_dis, 0) <> 1
+ORDER BY it_titem.ITEM_Description ASC
+''', [offerId]);
+    }
+
+    String specialName = '';
+    final items = <MenuItemEntity>[];
+    for (final row in rows) {
+      if (specialName.isEmpty) {
+        specialName = Utils.str(row['special_name']);
+      }
+      final screen = Utils.str(row['ITEM_Screen_Name']);
+      final description = Utils.str(row['ITEM_Description']);
+      var name = screen.isNotEmpty ? screen : description;
+      if (block.itemUpperCase) name = name.toUpperCase();
+      items.add(
+        MenuItemEntity(
+          itemId: Utils.str(row['ITEM_ID']),
+          name: name,
+          price: Utils.blobToDouble(row['ITEM_Sale_Price']) ?? 0,
+          description: Utils.str(row['desc_atmenu']),
+          className: specialName,
+        ),
+      );
+    }
+
+    var title = specialName.trim().isNotEmpty
+        ? specialName.trim()
+        : (block.screenName.trim().isNotEmpty ? block.screenName.trim() : 'SPECIAL');
+    if (block.classUpperCase) title = title.toUpperCase();
+
+    return MenuSection(
+      arrangement: block,
+      className: title,
+      items: items,
+    );
+  }
+
+  @override
+  Future<MenuSection> fillSectionView(
+    ArrangementBlock block, {
+    required bool sortAlphabetical,
+  }) {
+    if (block.contentType == ArrangementContentType.offer) {
+      return fillOfferView(block, sortAlphabetical: sortAlphabetical);
+    }
+    return fillClassView(block, sortAlphabetical: sortAlphabetical);
+  }
+
   /// Comma-separated active `dates_special.Id` values, or empty if none / tables missing.
   Future<String> _activeSpecialIds() async {
     try {
@@ -262,11 +374,14 @@ ORDER BY ds.DateOut ASC
     final sections = <MenuSection>[];
     for (final block in menus) {
       try {
-        final section = await fillClassView(
+        final section = await fillSectionView(
           block,
           sortAlphabetical: sortAlphabetical,
         );
-        if (section.items.isNotEmpty || section.className.isNotEmpty) {
+        // Keep OFFER blocks even when the special has no items yet (TV layout).
+        if (section.items.isNotEmpty ||
+            section.className.isNotEmpty ||
+            block.contentType == ArrangementContentType.offer) {
           sections.add(section);
         }
       } catch (_) {
@@ -298,7 +413,7 @@ ORDER BY ds.DateOut ASC
     final sections = <MenuSection>[];
     for (final section in current.sections) {
       try {
-        final next = await fillClassView(
+        final next = await fillSectionView(
           section.arrangement,
           sortAlphabetical: sortAlphabetical,
         );
@@ -836,6 +951,44 @@ INSERT INTO $_table (
           name: Utils.str(row['Class_Name']),
         ),
     ];
+  }
+
+  @override
+  Future<List<SpecialOfferOption>> listSpecialOffers() async {
+    Results rows;
+    try {
+      rows = await _client.query('''
+SELECT
+  Id,
+  IFNULL(descripcion, '') AS descripcion,
+  IFNULL(DateIn, '') AS DateIn,
+  IFNULL(DateOut, '') AS DateOut,
+  IFNULL(inactive, 0) AS inactive
+FROM dates_special
+ORDER BY descripcion ASC, Id ASC
+''');
+    } catch (_) {
+      rows = await _client.query('''
+SELECT
+  Id,
+  IFNULL(descripcion, '') AS descripcion,
+  IFNULL(DateIn, '') AS DateIn,
+  IFNULL(DateOut, '') AS DateOut
+FROM dates_special
+ORDER BY descripcion ASC, Id ASC
+''');
+    }
+
+    return [
+      for (final row in rows)
+        SpecialOfferOption(
+          id: Utils.asInt(row['Id']),
+          name: Utils.str(row['descripcion']),
+          dateIn: Utils.str(row['DateIn']),
+          dateOut: Utils.str(row['DateOut']),
+          inactive: Utils.asInt(row['inactive']) != 0,
+        ),
+    ].where((e) => e.id > 0).toList();
   }
 
   @override

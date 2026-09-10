@@ -29,6 +29,37 @@ class MenuClassOption {
   final String name;
 }
 
+/// A POS daily special (`dates_special`) for OFFER blocks.
+class SpecialOfferOption {
+  const SpecialOfferOption({
+    required this.id,
+    required this.name,
+    this.dateIn = '',
+    this.dateOut = '',
+    this.inactive = false,
+  });
+
+  final int id;
+  final String name;
+  final String dateIn;
+  final String dateOut;
+  final bool inactive;
+
+  String get label {
+    final n = name.trim().isEmpty ? 'Special #$id' : name.trim();
+    return '$n  ·  #$id';
+  }
+
+  String get subtitle {
+    final parts = <String>[];
+    if (dateIn.trim().isNotEmpty || dateOut.trim().isNotEmpty) {
+      parts.add('${dateIn.trim()} → ${dateOut.trim()}');
+    }
+    if (inactive) parts.add('inactive');
+    return parts.join(' · ');
+  }
+}
+
 /// Open POS ticket for Customer display (`it_tcuenta` + `it_torder`).
 class CustomerOrderTicket {
   const CustomerOrderTicket({

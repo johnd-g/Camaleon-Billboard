@@ -7,6 +7,7 @@ import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
 import 'package:camaleon_billboard/core/db/lan_mysql_discovery.dart';
 import 'package:camaleon_billboard/core/db/mysql_client.dart';
 import 'package:camaleon_billboard/core/errors/app_failure.dart';
+import 'package:camaleon_billboard/core/utils/board_rotation.dart';
 import 'package:camaleon_billboard/core/utils/device_identity.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/data/repositories/billboard_repository_impl.dart';
@@ -103,6 +104,20 @@ class BillboardController extends ChangeNotifier {
   Timer? _refreshTimer;
   bool _reloadInFlight = false;
   int _pollTick = 0;
+
+  /// Current rotating promo/offer/media block id (`display_seconds > 0`).
+  int? activeRotationId;
+  Timer? _rotationTimer;
+  List<int> _rotationPlaylist = const [];
+
+  bool get hasRotationPlaylist => _rotationPlaylist.isNotEmpty;
+
+  bool isArrangementVisible(ArrangementBlock a) => BoardRotation.isVisible(
+        a,
+        editing: layoutEditing,
+        activeRotationId: activeRotationId,
+        hasRotationPlaylist: hasRotationPlaylist,
+      );
 
   /// First launch: always show DB settings (prefill shared file if found).
   /// Returning users with saved MySQL prefs: auto-connect.
@@ -576,6 +591,7 @@ class BillboardController extends ChangeNotifier {
       phase = BillboardPhase.ready;
       isFirstLaunch = false;
       _scheduleRefresh();
+      _syncBoardRotation();
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('Billboard open failed: $e\n$st');
@@ -608,6 +624,7 @@ class BillboardController extends ChangeNotifier {
       }
       if (layoutEditing || layoutDirty || savingLayout) return;
       board = next;
+      _syncBoardRotation();
       notifyListeners();
     } catch (e) {
       if (kDebugMode) debugPrint('Silent reload failed: $e');
@@ -624,6 +641,7 @@ class BillboardController extends ChangeNotifier {
     _clearSessionPending();
     _customerDisplaySaved = customerDisplay;
     _refreshTimer?.cancel();
+    _stopBoardRotation(notify: false);
     notifyListeners();
   }
 
@@ -645,7 +663,10 @@ class BillboardController extends ChangeNotifier {
     _clearSessionPending();
     notifyListeners();
     await reloadSilent(full: true);
-    if (phase == BillboardPhase.ready) _scheduleRefresh();
+    if (phase == BillboardPhase.ready) {
+      _scheduleRefresh();
+      _syncBoardRotation();
+    }
   }
 
   /// Absolute geometry write — call once on drag/resize end (not per frame).
@@ -777,6 +798,8 @@ class BillboardController extends ChangeNotifier {
     final b = board;
     if (b == null || !layoutEditing) return;
 
+    var sectionContentChanged = false;
+
     ArrangementBlock patch(ArrangementBlock a) {
       var next = a;
       if (classFontDelta != null) {
@@ -840,10 +863,13 @@ class BillboardController extends ChangeNotifier {
         next = next.copyWith(detailDescription: detailDescription);
       }
       if (contentType != null) {
+        if (contentType != next.contentType) sectionContentChanged = true;
         next = next.copyWith(contentType: contentType);
       }
       if (offerId != null) {
-        next = next.copyWith(offerId: offerId.clamp(0, 2147483647));
+        final clamped = offerId.clamp(0, 2147483647);
+        if (clamped != next.offerId) sectionContentChanged = true;
+        next = next.copyWith(offerId: clamped);
       }
       if (mediaType != null) {
         if (mediaType == ArrangementMediaType.video) {
@@ -957,6 +983,48 @@ class BillboardController extends ChangeNotifier {
     );
     layoutDirty = true;
     notifyListeners();
+    if (sectionContentChanged) {
+      unawaited(_reloadSectionContent(arrangementId));
+    }
+  }
+
+  Future<void> _reloadSectionContent(int arrangementId) async {
+    final b = board;
+    if (b == null || !layoutEditing) return;
+    MenuSection? target;
+    for (final s in b.sections) {
+      if (s.arrangement.id == arrangementId) {
+        target = s;
+        break;
+      }
+    }
+    if (target == null) return;
+    try {
+      final loaded = await _billboardRepo.fillSectionView(
+        target.arrangement,
+        sortAlphabetical: sortAlphabetical,
+      );
+      final current = board;
+      if (current == null || !layoutEditing) return;
+      board = current.copyWith(
+        sections: [
+          for (final s in current.sections)
+            if (s.arrangement.id == arrangementId)
+              s.copyWith(
+                arrangement: target.arrangement,
+                className: loaded.className,
+                items: loaded.items,
+              )
+            else
+              s,
+        ],
+      );
+      notifyListeners();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('Reload section after OFFER/MENU change failed: $e\n$st');
+      }
+    }
   }
 
   void setBoardBackgroundColor(int qbIndex) {
@@ -1150,6 +1218,33 @@ class BillboardController extends ChangeNotifier {
     }
   }
 
+  /// Cached POS specials for OFFER pickers (name + id).
+  List<SpecialOfferOption> specialOffers = const [];
+
+  Future<List<SpecialOfferOption>> listSpecialOffers({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && specialOffers.isNotEmpty) return specialOffers;
+    try {
+      specialOffers = await _billboardRepo.listSpecialOffers();
+      notifyListeners();
+      return specialOffers;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('List special offers failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      notifyListeners();
+      return specialOffers;
+    }
+  }
+
+  String specialOfferLabel(int offerId) {
+    if (offerId <= 0) return 'Pick a POS special';
+    for (final o in specialOffers) {
+      if (o.id == offerId) return o.label;
+    }
+    return 'Special #$offerId';
+  }
+
   /// Creates a new menu section in memory (INSERT on Save). Returns temp ID.
   Future<int?> addMenuBlock({
     required int classId,
@@ -1185,7 +1280,7 @@ class BillboardController extends ChangeNotifier {
         displaySeconds: 0,
         usePicture: false,
       );
-      final section = await _billboardRepo.fillClassView(
+      final section = await _billboardRepo.fillSectionView(
         block,
         sortAlphabetical: sortAlphabetical,
       );
@@ -1198,6 +1293,64 @@ class BillboardController extends ChangeNotifier {
       return id;
     } catch (e, st) {
       if (kDebugMode) debugPrint('Add menu block failed: $e\n$st');
+      errorMessage = AppFailure.message(e);
+      creatingBlock = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Creates an OFFER section bound to a POS special (`dates_special.Id`).
+  Future<int?> addOfferBlock({
+    required int offerId,
+    required String offerName,
+  }) async {
+    final b = board;
+    final name = computerName.trim();
+    if (b == null || name.isEmpty || !layoutEditing) return null;
+    if (offerId <= 0) return null;
+
+    creatingBlock = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final index = b.sections.length + b.pictures.length;
+      final id = _allocTempId();
+      final title = offerName.trim().isEmpty ? 'SPECIAL' : offerName.trim();
+      final block = ArrangementBlock(
+        id: id,
+        compName: name,
+        screenName: title,
+        classId: 0,
+        xDistance: 40 + (index % 4) * 36,
+        yDistance: 40 + index * 36,
+        maxWidth: 600,
+        mainBackColor: b.mainBackColor,
+        classForeColor: 15,
+        classBackColor: 2,
+        itemForeColor: 15,
+        itemBackColor: 0,
+        contentType: ArrangementContentType.offer,
+        offerId: offerId,
+        displayOrder: index + 1,
+        // Offers default into the rotation playlist for supermarket TVs.
+        displaySeconds: 8,
+        usePicture: false,
+      );
+      final section = await _billboardRepo.fillSectionView(
+        block,
+        sortAlphabetical: sortAlphabetical,
+      );
+
+      board = b.copyWith(sections: [...b.sections, section]);
+      _sessionDeletedIds.remove(id);
+      layoutDirty = true;
+      creatingBlock = false;
+      notifyListeners();
+      return id;
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Add offer block failed: $e\n$st');
       errorMessage = AppFailure.message(e);
       creatingBlock = false;
       notifyListeners();
@@ -1418,7 +1571,10 @@ class BillboardController extends ChangeNotifier {
     if (!layoutDirty) {
       layoutEditing = false;
       notifyListeners();
-      if (phase == BillboardPhase.ready) _scheduleRefresh();
+      if (phase == BillboardPhase.ready) {
+        _scheduleRefresh();
+        _syncBoardRotation();
+      }
       return true;
     }
 
@@ -1447,6 +1603,7 @@ class BillboardController extends ChangeNotifier {
 
         await reloadSilent(full: true);
         _scheduleRefresh();
+        _syncBoardRotation();
         return true;
       } catch (e, st) {
         lastError = e;
@@ -1618,8 +1775,91 @@ class BillboardController extends ChangeNotifier {
     );
   }
 
+  void _stopBoardRotation({bool notify = true}) {
+    _rotationTimer?.cancel();
+    _rotationTimer = null;
+    _rotationPlaylist = const [];
+    if (activeRotationId != null) {
+      activeRotationId = null;
+      if (notify) notifyListeners();
+    }
+  }
+
+  /// Rebuilds the display_order / display_seconds playlist and starts the timer.
+  void _syncBoardRotation() {
+    if (layoutEditing || phase != BillboardPhase.ready) {
+      _stopBoardRotation();
+      return;
+    }
+    final b = board;
+    if (b == null) {
+      _stopBoardRotation();
+      return;
+    }
+
+    final playlist = BoardRotation.playlist(b);
+    final ids = [for (final a in playlist) a.id];
+    if (ids.isEmpty) {
+      _stopBoardRotation();
+      return;
+    }
+
+    final playlistChanged = ids.length != _rotationPlaylist.length ||
+        !_sameIntList(ids, _rotationPlaylist);
+    _rotationPlaylist = ids;
+
+    if (activeRotationId == null || !ids.contains(activeRotationId)) {
+      activeRotationId = ids.first;
+      notifyListeners();
+      _scheduleNextRotationTick();
+      return;
+    }
+
+    if (playlistChanged) {
+      notifyListeners();
+      _scheduleNextRotationTick();
+    } else if (_rotationTimer == null) {
+      _scheduleNextRotationTick();
+    }
+  }
+
+  void _scheduleNextRotationTick() {
+    _rotationTimer?.cancel();
+    final b = board;
+    if (b == null || layoutEditing || _rotationPlaylist.isEmpty) return;
+
+    final id = activeRotationId ?? _rotationPlaylist.first;
+    ArrangementBlock? current;
+    for (final a in BoardRotation.playlist(b)) {
+      if (a.id == id) {
+        current = a;
+        break;
+      }
+    }
+    current ??= BoardRotation.playlist(b).first;
+    final secs = current.displaySeconds.clamp(1, 3600);
+    _rotationTimer = Timer(Duration(seconds: secs), () {
+      if (layoutEditing || board == null) return;
+      if (_rotationPlaylist.isEmpty) return;
+      final i = _rotationPlaylist.indexOf(activeRotationId ?? -1);
+      final nextIndex = i < 0 ? 0 : (i + 1) % _rotationPlaylist.length;
+      activeRotationId = _rotationPlaylist[nextIndex];
+      notifyListeners();
+      _scheduleNextRotationTick();
+    });
+  }
+
+  static bool _sameIntList(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   Future<void> disconnectToSettings() async {
     _refreshTimer?.cancel();
+    _stopBoardRotation(notify: false);
     layoutEditing = false;
     layoutDirty = false;
     savingLayout = false;
@@ -1631,6 +1871,7 @@ class BillboardController extends ChangeNotifier {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _rotationTimer?.cancel();
     unawaited(_billboardRepo.disconnect());
     super.dispose();
   }

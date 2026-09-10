@@ -129,9 +129,20 @@ class _BoardPageState extends State<BoardPage> {
         selectedSection.arrangement.yDistance > designH * 0.42;
 
     // Paint the selected block last so it sits above overlaps and stays tappable.
-    final pictures = _withSelectedOnTop(board.pictures, (p) => p.arrangement.id);
-    final sections =
-        _withSelectedOnTop(board.sections, (s) => s.arrangement.id);
+    final pictures = _withSelectedOnTop(
+      [
+        for (final p in board.pictures)
+          if (c.isArrangementVisible(p.arrangement)) p,
+      ],
+      (p) => p.arrangement.id,
+    );
+    final sections = _withSelectedOnTop(
+      [
+        for (final s in board.sections)
+          if (c.isArrangementVisible(s.arrangement)) s,
+      ],
+      (s) => s.arrangement.id,
+    );
     final bgPictures = board.boardBackgroundPictures;
     // If DB has multiple bb_background=1, only paint the first and warn in UI.
     final activeBgPictures =
@@ -274,6 +285,9 @@ class _BoardPageState extends State<BoardPage> {
                                                 '${section.arrangement.borderTopWidth}-'
                                                 '${section.arrangement.borderTopColor}-'
                                                 '${section.arrangement.rangeItems}-'
+                                                '${section.arrangement.offerId}-'
+                                                '${section.arrangement.displayOrder}-'
+                                                '${section.arrangement.displaySeconds}-'
                                                 '${section.arrangement.applyRange(section.items).length}',
                                             onSelect: () => _selectBlock(
                                               section.arrangement.id,
@@ -458,6 +472,7 @@ class _BoardPageState extends State<BoardPage> {
               ),
               onClearBlockMedia: _clearSelectedBlockMedia,
               onAddMenuSection: _addMenuSection,
+              onAddOfferSection: _addOfferSection,
               onAddPhotoBlock: _addPhotoBlock,
               onDeleteBlock: _deleteSelectedBlock,
               creatingBlock: c.creatingBlock,
@@ -713,6 +728,101 @@ class _BoardPageState extends State<BoardPage> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(c.errorMessage ?? 'Could not add menu section'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+    setState(() => _selectedId = id);
+  }
+
+  Future<void> _addOfferSection() async {
+    final c = context.read<BillboardController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final offers = await c.listSpecialOffers(forceRefresh: true);
+    if (!mounted) return;
+    if (offers.isEmpty) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            c.errorMessage ?? 'No specials found in POS (dates_special)',
+          ),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        ),
+      );
+      return;
+    }
+
+    final picked = await showDialog<SpecialOfferOption>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF121824),
+          title: const Text(
+            'Add special / offer',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 420,
+            height: 420,
+            child: ListView.separated(
+              itemCount: offers.length,
+              separatorBuilder: (_, _) => Divider(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.08),
+              ),
+              itemBuilder: (_, i) {
+                final opt = offers[i];
+                return ListTile(
+                  leading: const Icon(
+                    Icons.local_offer_outlined,
+                    color: Colors.white70,
+                  ),
+                  title: Text(
+                    opt.name.trim().isEmpty
+                        ? 'Special #${opt.id}'
+                        : opt.name.trim(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  subtitle: Text(
+                    [
+                      'ID ${opt.id}',
+                      if (opt.subtitle.isNotEmpty) opt.subtitle,
+                    ].join(' · '),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 12,
+                    ),
+                  ),
+                  onTap: () => Navigator.of(ctx).pop(opt),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+
+    final id = await c.addOfferBlock(
+      offerId: picked.id,
+      offerName: picked.name,
+    );
+    if (!mounted) return;
+    if (id == null) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(c.errorMessage ?? 'Could not add special'),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         ),
@@ -1036,6 +1146,7 @@ class _EditChrome extends StatelessWidget {
     required this.onPickBlockVideo,
     required this.onClearBlockMedia,
     required this.onAddMenuSection,
+    required this.onAddOfferSection,
     required this.onAddPhotoBlock,
     required this.onDeleteBlock,
     required this.onStylePatch,
@@ -1063,6 +1174,7 @@ class _EditChrome extends StatelessWidget {
   final VoidCallback onPickBlockVideo;
   final VoidCallback onClearBlockMedia;
   final VoidCallback onAddMenuSection;
+  final VoidCallback onAddOfferSection;
   final VoidCallback onAddPhotoBlock;
   final VoidCallback onDeleteBlock;
   final StylePatch onStylePatch;
@@ -1122,6 +1234,7 @@ class _EditChrome extends StatelessWidget {
       onPickBlockVideo: onPickBlockVideo,
       onClearBlockMedia: onClearBlockMedia,
       onAddMenuSection: onAddMenuSection,
+      onAddOfferSection: onAddOfferSection,
       onAddPhotoBlock: onAddPhotoBlock,
       onDeleteBlock: onDeleteBlock,
       creatingBlock: creatingBlock,
