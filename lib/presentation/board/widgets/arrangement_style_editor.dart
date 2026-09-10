@@ -1318,7 +1318,7 @@ class _OfferPickerRow extends StatelessWidget {
                     selectedTileColor:
                         CamaleonColors.green.withValues(alpha: 0.15),
                     leading: Icon(
-                      Icons.block_flipped,
+                      Icons.clear_rounded,
                       color: cleared
                           ? CamaleonColors.green
                           : Colors.white.withValues(alpha: 0.55),
