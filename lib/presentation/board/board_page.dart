@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
+import 'package:camaleon_billboard/core/utils/unicode_text.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/presentation/billboard_controller.dart';
@@ -19,6 +20,7 @@ import 'package:camaleon_billboard/presentation/board/widgets/billboard_video_pa
 import 'package:camaleon_billboard/presentation/board/widgets/customer_order_preview.dart';
 import 'package:camaleon_billboard/presentation/board/widgets/menu_section_panel.dart';
 import 'package:camaleon_billboard/presentation/connection/connection_page.dart';
+import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
 
 class BoardPage extends StatefulWidget {
   const BoardPage({super.key});
@@ -30,6 +32,7 @@ class BoardPage extends StatefulWidget {
 class _BoardPageState extends State<BoardPage> {
   bool _chromeHidden = true;
   int? _selectedId;
+  final FocusNode _boardFocus = FocusNode(debugLabel: 'boardShortcuts');
 
   /// Soft caps — large enough for wall / 8K layouts, not a hard product limit.
   static const int _maxBlockWidth = 20000;
@@ -47,6 +50,7 @@ class _BoardPageState extends State<BoardPage> {
 
   @override
   void dispose() {
+    _boardFocus.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -69,11 +73,12 @@ class _BoardPageState extends State<BoardPage> {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.watch<BillboardController>();
-    final board = c.board;
+    final phase = context.select((BillboardController c) => c.phase);
+    final errorMessage =
+        context.select((BillboardController c) => c.errorMessage);
 
-    if (c.phase == BillboardPhase.loading ||
-        c.phase == BillboardPhase.bootstrapping) {
+    if (phase == BillboardPhase.loading ||
+        phase == BillboardPhase.bootstrapping) {
       final scheme = Theme.of(context).colorScheme;
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -81,11 +86,15 @@ class _BoardPageState extends State<BoardPage> {
       );
     }
 
-    if (c.phase == BillboardPhase.needsConnection) {
-      return const ConnectionPage();
+    if (phase == BillboardPhase.needsConnection) {
+      // Stable key keeps State across BoardPage rebuilds from controller notifies.
+      return const ConnectionPage(key: ValueKey('connection'));
     }
 
-    if (c.phase == BillboardPhase.error || board == null) {
+    final hasBoard =
+        context.select((BillboardController c) => c.board != null);
+    if (phase == BillboardPhase.error || !hasBoard) {
+      final c = context.read<BillboardController>();
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -103,7 +112,7 @@ class _BoardPageState extends State<BoardPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    c.errorMessage ?? 'Could not load billboard',
+                    errorMessage ?? 'Could not load billboard',
                     style: const TextStyle(color: Colors.white70),
                     textAlign: TextAlign.center,
                   ),
@@ -124,16 +133,15 @@ class _BoardPageState extends State<BoardPage> {
       );
     }
 
-    final bg = QbColors.of(board.mainBackColor);
-    final editing = c.layoutEditing;
-    // Canvas grows with content (giant screens OK). FittedBox keeps it on-screen.
-    final designW = _designWidth(board);
-    final designH = _designHeight(board);
+    final editing =
+        context.select((BillboardController c) => c.layoutEditing);
     final screen = MediaQuery.sizeOf(context);
     final sideEditor = editing && screen.width >= 800;
     const sideW = 320.0;
     const topBarH = 72.0;
 
+    final board = context.watch<BillboardController>().board!;
+    final bg = QbColors.of(board.mainBackColor);
     MenuSection? selectedSection;
     if (_selectedId != null) {
       for (final s in board.sections) {
@@ -143,276 +151,75 @@ class _BoardPageState extends State<BoardPage> {
         }
       }
     }
-    // On phones, put the editor opposite the block so it stays visible.
-    final dockEditorTop =
-        !sideEditor &&
-        selectedSection != null &&
-        selectedSection.arrangement.yDistance > designH * 0.42;
 
-    // Paint the selected block last so it sits above overlaps and stays tappable.
-    final pictures = _withSelectedOnTop([
-      for (final p in board.pictures)
-        if (c.isArrangementVisible(p.arrangement)) p,
-    ], (p) => p.arrangement.id);
-    final sections = _withSelectedOnTop([
-      for (final s in board.sections)
-        if (c.isArrangementVisible(s.arrangement)) s,
-    ], (s) => s.arrangement.id);
-    final bgPictures = board.boardBackgroundPictures;
-    // If DB has multiple bb_background=1, only paint the first and warn in UI.
-    final activeBgPictures = bgPictures.length <= 1
-        ? bgPictures
-        : bgPictures.take(1).toList();
-    final fgPictures = [
-      for (final p in pictures)
-        if (!p.arrangement.isBoardBackground) p,
-    ];
-
-    final orderColW = c.customerDisplay
-        ? (screen.width >= 900 ? 320.0 : 280.0)
-        : 0.0;
-
-    // Chrome/buttons stay OUTSIDE the double-tap detector so entering edit
-    // mode cannot dispose DoubleTapRecognizer mid-tap (setState-during-build).
-    return Scaffold(
+    return Focus(
+      focusNode: _boardFocus,
+      onKeyEvent: _onBoardKeyEvent,
+      child: Scaffold(
       backgroundColor: bg,
       body: Stack(
         children: [
+          // Positioned MUST be a direct Stack child (Selector cannot wrap it).
           Positioned(
             left: 0,
             right: sideEditor ? sideW : 0,
-            // Keep board under chrome but top-aligned so y=0 is the real top.
             top: editing ? topBarH : 0,
             bottom: editing && !sideEditor
                 ? (selectedSection == null ? 88 : 210)
                 : 0,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onDoubleTap: editing
-                        ? null
-                        : () => setState(() => _chromeHidden = !_chromeHidden),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        return InteractiveViewer(
-                          // Pan/zoom fights with drag-to-move while editing.
-                          panEnabled: !editing,
-                          scaleEnabled: !editing,
-                          minScale: 0.4,
-                          maxScale: 3,
-                          child: SizedBox(
-                            width: constraints.maxWidth,
-                            height: constraints.maxHeight,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                // One full-viewport fill — avoids "two backgrounds"
-                                // (letterbox bars vs design canvas).
-                                ColoredBox(color: bg),
-                                for (final pic in activeBgPictures)
-                                  Positioned.fill(
-                                    key: ValueKey('bg-${pic.arrangement.id}'),
-                                    child: editing
-                                        ? GestureDetector(
-                                            behavior: HitTestBehavior.opaque,
-                                            onTap: () => _selectBlock(
-                                              pic.arrangement.id,
-                                            ),
-                                            child: DecoratedBox(
-                                              decoration: BoxDecoration(
-                                                border: Border.all(
-                                                  color:
-                                                      _selectedId ==
-                                                          pic.arrangement.id
-                                                      ? CamaleonColors.green
-                                                      : Colors.transparent,
-                                                  width: 3,
-                                                ),
-                                              ),
-                                              child: BillboardPicturePanel(
-                                                block: pic,
-                                              ),
-                                            ),
-                                          )
-                                        : BillboardPicturePanel(block: pic),
-                                  ),
-                                // Menu coords stay in design space; bg fills the screen.
-                                FittedBox(
-                                  fit: BoxFit.contain,
-                                  alignment: Alignment.topCenter,
-                                  child: SizedBox(
-                                    width: designW,
-                                    height: designH,
-                                    child: Stack(
-                                      clipBehavior: Clip.none,
-                                      children: [
-                                        if (editing)
-                                          Positioned.fill(
-                                            child: GestureDetector(
-                                              behavior:
-                                                  HitTestBehavior.translucent,
-                                              onTap: () => setState(
-                                                () => _selectedId = null,
-                                              ),
-                                            ),
-                                          ),
-                                        for (final section in sections)
-                                          _BoardBlock(
-                                            key: ValueKey(
-                                              'sec-${section.arrangement.id}',
-                                            ),
-                                            x: section.arrangement.xDistance
-                                                .toDouble(),
-                                            y: section.arrangement.yDistance
-                                                .toDouble(),
-                                            width: section.arrangement.maxWidth
-                                                .toDouble()
-                                                .clamp(
-                                                  120,
-                                                  _maxBlockWidth.toDouble(),
-                                                ),
-                                            editing: editing,
-                                            selected:
-                                                _selectedId ==
-                                                section.arrangement.id,
-                                            resizable: true,
-                                            contentRevision:
-                                                '${section.arrangement.classFontSize}-'
-                                                '${section.arrangement.itemFontSize}-'
-                                                '${section.arrangement.maxWidth}-'
-                                                '${section.arrangement.classBackColor}-'
-                                                '${section.arrangement.itemBackColor}-'
-                                                '${section.arrangement.classForeColor}-'
-                                                '${section.arrangement.itemForeColor}-'
-                                                '${section.arrangement.classBold}-'
-                                                '${section.arrangement.itemBold}-'
-                                                '${section.arrangement.classUpperCase}-'
-                                                '${section.arrangement.itemUpperCase}-'
-                                                '${section.arrangement.modifierColor}-'
-                                                '${section.arrangement.modifierFontSize}-'
-                                                '${section.arrangement.classFontName}-'
-                                                '${section.arrangement.itemFontName}-'
-                                                '${section.arrangement.modifierFontName}-'
-                                                '${section.arrangement.contentType.dbValue}-'
-                                                '${section.arrangement.borderTopWidth}-'
-                                                '${section.arrangement.borderTopColor}-'
-                                                '${section.arrangement.rangeItems}-'
-                                                '${section.arrangement.offerId}-'
-                                                '${section.arrangement.displayOrder}-'
-                                                '${section.arrangement.displaySeconds}-'
-                                                '${section.className}-'
-                                                // Include prices/names — otherwise
-                                                // _BoardBlock keeps a stale child
-                                                // when only ITEM_Sale_Price changes.
-                                                '${Object.hashAll([for (final i in section.items) Object.hash(i.itemId, i.name, i.price, i.description)])}',
-                                            onSelect: () => _selectBlock(
-                                              section.arrangement.id,
-                                            ),
-                                            onDragStarted: c.markLayoutDirty,
-                                            onCommit: (x, y, width, height) {
-                                              c.commitArrangementGeometry(
-                                                arrangementId:
-                                                    section.arrangement.id,
-                                                xDistance: x,
-                                                yDistance: y,
-                                                maxWidth: width.round(),
-                                                maxX: _maxPos,
-                                                maxY: _maxPos,
-                                              );
-                                            },
-                                            child: MenuSectionPanel(
-                                              section: section,
-                                            ),
-                                          ),
-                                        for (final pic in fgPictures)
-                                          _BoardBlock(
-                                            key: ValueKey(
-                                              'pic-${pic.arrangement.id}',
-                                            ),
-                                            x: pic.x.toDouble(),
-                                            y: pic.y.toDouble(),
-                                            width: pic.arrangement.maxWidth
-                                                .toDouble()
-                                                .clamp(
-                                                  40,
-                                                  _maxBlockWidth.toDouble(),
-                                                ),
-                                            height: pic
-                                                .arrangement
-                                                .pictureDisplayHeight,
-                                            editing: editing,
-                                            selected:
-                                                _selectedId ==
-                                                pic.arrangement.id,
-                                            resizable: true,
-                                            minWidth: 80,
-                                            lockAspectHeight: true,
-                                            contentRevision:
-                                                '${pic.arrangement.maxWidth}-'
-                                                '${pic.bytes?.length ?? 0}-'
-                                                '${pic.route}-'
-                                                '${pic.arrangement.mediaFit.dbValue}-'
-                                                '${pic.arrangement.mediaOpacity}-'
-                                                '${pic.arrangement.borderTopWidth}-'
-                                                '${pic.arrangement.borderTopColor}-'
-                                                '${pic.arrangement.mediaType.dbValue}',
-                                            onSelect: () => _selectBlock(
-                                              pic.arrangement.id,
-                                            ),
-                                            onDragStarted: c.markLayoutDirty,
-                                            onCommit: (x, y, width, height) {
-                                              c.commitArrangementGeometry(
-                                                arrangementId:
-                                                    pic.arrangement.id,
-                                                xDistance: x,
-                                                yDistance: y,
-                                                maxWidth: width.round(),
-                                                minWidth: 80,
-                                                maxX: _maxPos,
-                                                maxY: _maxPos,
-                                              );
-                                            },
-                                            child: BillboardPicturePanel(
-                                              block: pic,
-                                            ),
-                                          ),
-                                        if (board.sections.isEmpty &&
-                                            board.pictures.isEmpty)
-                                          const Center(
-                                            child: Text(
-                                              'No bb_arrangement rows for this computer name.\n'
-                                              'Configure screens in Camaleon POS → Billboard.',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                color: Colors.white70,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+            child: Selector<BillboardController, _CanvasKey>(
+              selector: (_, c) => _CanvasKey(
+                board: c.board!,
+                editing: c.layoutEditing,
+                customerDisplay: c.customerDisplay,
+                activeRotationId: c.activeRotationId,
+                previewRotation: c.previewRotation,
+                selectedId: _selectedId,
+              ),
+              builder: (context, key, _) {
+                return _BoardCanvasLayer(
+                  board: key.board,
+                  editing: key.editing,
+                  customerDisplay: key.customerDisplay,
+                  selectedId: key.selectedId,
+                  screen: screen,
+                  maxBlockWidth: _maxBlockWidth,
+                  maxPos: _maxPos,
+                  onToggleChrome: () =>
+                      setState(() => _chromeHidden = !_chromeHidden),
+                  onSelectBlock: _selectBlock,
+                  onClearSelection: () => setState(() => _selectedId = null),
+                  designWidth: _designWidth,
+                  designHeight: _designHeight,
+                  withSelectedOnTop: _withSelectedOnTop,
+                );
+              },
+            ),
+          ),
+          // Brand watermark — fixed to screen bottom-left (outside InteractiveViewer).
+          Positioned(
+              left: 0,
+              bottom: 0,
+              child: SafeArea(
+                top: false,
+                right: false,
+                child: IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 0, 8),
+                    child: Opacity(
+                      opacity: 0.85,
+                      child: Image.asset(
+                        CamaleonAssets.logo,
+                        height: 40,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.centerLeft,
+                        filterQuality: FilterQuality.high,
+                      ),
                     ),
                   ),
                 ),
-                if (c.customerDisplay) ...[
-                  Container(
-                    width: 1,
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                  CustomerOrderBoardPanel(width: orderColW),
-                ],
-              ],
+              ),
             ),
-          ),
           if (board.hasMultipleBoardBackgrounds)
             Positioned(
               left: 12,
@@ -453,176 +260,215 @@ class _BoardPageState extends State<BoardPage> {
               ),
             ),
           if (editing)
-            _EditChrome(
-              selectedId: _selectedId,
-              board: board,
-              saving: c.savingLayout,
-              dirty: c.layoutDirty,
-              uploadingBackground: c.uploadingBoardBackground,
-              sidePanel: sideEditor,
-              dockTop: dockEditorTop,
-              sideWidth: sideW,
-              onCancel: () async {
-                setState(() => _selectedId = null);
-                await c.cancelLayoutEdit();
-              },
-              onSave: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                final ok = await c.saveLayoutEdits();
-                if (!mounted) return;
-                setState(() => _selectedId = null);
-                if (ok) return;
-                messenger.hideCurrentSnackBar();
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      c.errorMessage ?? 'Could not save the layout',
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              },
-              onBoardBackgroundColor: c.setBoardBackgroundColor,
-              onPickBackgroundImage: _pickBoardBackgroundImage,
-              onPickBackgroundVideo: _pickBoardBackgroundVideo,
-              onClearBackgroundImage: _clearBoardBackgroundImage,
-              onPickBlockImage: () =>
-                  _browseSelectedMediaFile(ArrangementMediaType.image),
-              onPickBlockVideo: () =>
-                  _browseSelectedMediaFile(ArrangementMediaType.video),
-              onClearBlockMedia: _clearSelectedBlockMedia,
-              onAddMenuSection: _addMenuSection,
-              onAddOfferSection: _addOfferSection,
-              onAddRotatingOffers: _addRotatingOffers,
-              onAddPhotoBlock: _addPhotoBlock,
-              onDeleteBlock: _deleteSelectedBlock,
-              creatingBlock: c.creatingBlock,
-              customerDisplay: c.customerDisplay,
-              onCustomerDisplayChanged: c.setCustomerDisplay,
-              onStylePatch:
-                  ({
-                    int? classFontDelta,
-                    int? itemFontDelta,
-                    int? modifierFontSize,
-                    int? classForeColor,
-                    int? classBackColor,
-                    int? itemForeColor,
-                    int? itemBackColor,
-                    int? mainBackColor,
-                    int? modifierColor,
-                    bool? classBold,
-                    bool? itemBold,
-                    bool? classUpperCase,
-                    bool? itemUpperCase,
-                    bool? boardBackground,
-                    int? maxWidth,
-                    String? classFontName,
-                    String? itemFontName,
-                    String? modifierFontName,
-                    ArrangementContentType? contentType,
-                    int? offerId,
-                    ArrangementMediaType? mediaType,
-                    String? mediaFile,
-                    ArrangementMediaFit? mediaFit,
-                    double? mediaOpacity,
-                    int? displayOrder,
-                    int? displaySeconds,
-                    int? rangeOffset,
-                    int? rangeCount,
-                    int? borderWidth,
-                    String? borderColor,
-                    bool? videoLoop,
-                    bool? videoMuted,
-                  }) {
-                    final id = _selectedId;
-                    if (id == null) return;
-                    if (maxWidth != null) {
-                      c.resizeArrangement(
-                        arrangementId: id,
-                        maxWidth: maxWidth,
-                      );
+            Selector<BillboardController, _ChromeKey>(
+              selector: (_, c) => _ChromeKey(
+                board: c.board!,
+                dirty: c.layoutDirty,
+                saving: c.savingLayout,
+                creating: c.creatingBlock,
+                uploading: c.uploadingBoardBackground,
+                customerDisplay: c.customerDisplay,
+                selectedId: _selectedId,
+              ),
+              builder: (context, key, _) {
+                final c = context.read<BillboardController>();
+                final designH = _designHeight(key.board);
+                MenuSection? chromeSelected;
+                if (_selectedId != null) {
+                  for (final s in key.board.sections) {
+                    if (s.arrangement.id == _selectedId) {
+                      chromeSelected = s;
+                      break;
                     }
-                    c.updateArrangementStyle(
-                      arrangementId: id,
-                      classFontDelta: classFontDelta,
-                      itemFontDelta: itemFontDelta,
-                      modifierFontSize: modifierFontSize,
-                      classForeColor: classForeColor,
-                      classBackColor: classBackColor,
-                      itemForeColor: itemForeColor,
-                      itemBackColor: itemBackColor,
-                      mainBackColor: mainBackColor,
-                      modifierColor: modifierColor,
-                      classBold: classBold,
-                      itemBold: itemBold,
-                      classUpperCase: classUpperCase,
-                      itemUpperCase: itemUpperCase,
-                      boardBackground: boardBackground,
-                      classFontName: classFontName,
-                      itemFontName: itemFontName,
-                      modifierFontName: modifierFontName,
-                      contentType: contentType,
-                      offerId: offerId,
-                      mediaType: mediaType,
-                      mediaFile: mediaFile,
-                      mediaFit: mediaFit,
-                      mediaOpacity: mediaOpacity,
-                      displayOrder: displayOrder,
-                      displaySeconds: displaySeconds,
-                      rangeOffset: rangeOffset,
-                      rangeCount: rangeCount,
-                      borderWidth: borderWidth,
-                      borderColor: borderColor,
-                      videoLoop: videoLoop,
-                      videoMuted: videoMuted,
+                  }
+                }
+                final dockEditorTop = !sideEditor &&
+                    chromeSelected != null &&
+                    chromeSelected.arrangement.yDistance > designH * 0.42;
+                return _EditChrome(
+                  selectedId: _selectedId,
+                  board: key.board,
+                  saving: key.saving,
+                  dirty: key.dirty,
+                  uploadingBackground: key.uploading,
+                  sidePanel: sideEditor,
+                  dockTop: dockEditorTop,
+                  sideWidth: sideW,
+                  onCancel: () async {
+                    setState(() => _selectedId = null);
+                    await c.cancelLayoutEdit();
+                  },
+                  onSave: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await c.saveLayoutEdits();
+                    if (!mounted) return;
+                    setState(() => _selectedId = null);
+                    if (ok) return;
+                    messenger.hideCurrentSnackBar();
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          c.errorMessage ?? 'Could not save the layout',
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        duration: const Duration(seconds: 3),
+                      ),
                     );
                   },
+                  onBoardBackgroundColor: c.setBoardBackgroundColor,
+                  onPickBackgroundImage: _pickBoardBackgroundImage,
+                  onPickBackgroundVideo: _pickBoardBackgroundVideo,
+                  onClearBackgroundImage: _clearBoardBackgroundImage,
+                  onPickBlockImage: () =>
+                      _browseSelectedMediaFile(ArrangementMediaType.image),
+                  onPickBlockVideo: () =>
+                      _browseSelectedMediaFile(ArrangementMediaType.video),
+                  onClearBlockMedia: _clearSelectedBlockMedia,
+                  onAddMenuSection: _addMenuSection,
+                  onAddOfferSection: _addOfferSection,
+                  onAddRotatingOffers: _addRotatingOffers,
+                  onAddPhotoBlock: _addPhotoBlock,
+                  onDeleteBlock: _deleteSelectedBlock,
+                  creatingBlock: key.creating,
+                  customerDisplay: key.customerDisplay,
+                  onCustomerDisplayChanged: c.setCustomerDisplay,
+                  onStylePatch:
+                      ({
+                        int? classFontDelta,
+                        int? itemFontDelta,
+                        int? classFontSize,
+                        int? modifierFontSize,
+                        int? classForeColor,
+                        int? classBackColor,
+                        int? itemForeColor,
+                        int? itemBackColor,
+                        int? mainBackColor,
+                        int? modifierColor,
+                        bool? classBold,
+                        bool? itemBold,
+                        bool? classUpperCase,
+                        bool? itemUpperCase,
+                        bool? boardBackground,
+                        int? maxWidth,
+                        String? classFontName,
+                        String? itemFontName,
+                        String? modifierFontName,
+                        ArrangementContentType? contentType,
+                        int? offerId,
+                        ArrangementMediaType? mediaType,
+                        String? mediaFile,
+                        ArrangementMediaFit? mediaFit,
+                        double? mediaOpacity,
+                        int? displayOrder,
+                        int? displaySeconds,
+                        int? rangeOffset,
+                        int? rangeCount,
+                        int? borderWidth,
+                        String? borderColor,
+                        bool? videoLoop,
+                        bool? videoMuted,
+                      }) {
+                        final id = _selectedId;
+                        if (id == null) return;
+                        if (maxWidth != null) {
+                          c.resizeArrangement(
+                            arrangementId: id,
+                            maxWidth: maxWidth,
+                          );
+                        }
+                        c.updateArrangementStyle(
+                          arrangementId: id,
+                          classFontDelta: classFontDelta,
+                          itemFontDelta: itemFontDelta,
+                          classFontSize: classFontSize,
+                          modifierFontSize: modifierFontSize,
+                          classForeColor: classForeColor,
+                          classBackColor: classBackColor,
+                          itemForeColor: itemForeColor,
+                          itemBackColor: itemBackColor,
+                          mainBackColor: mainBackColor,
+                          modifierColor: modifierColor,
+                          classBold: classBold,
+                          itemBold: itemBold,
+                          classUpperCase: classUpperCase,
+                          itemUpperCase: itemUpperCase,
+                          boardBackground: boardBackground,
+                          classFontName: classFontName,
+                          itemFontName: itemFontName,
+                          modifierFontName: modifierFontName,
+                          contentType: contentType,
+                          offerId: offerId,
+                          mediaType: mediaType,
+                          mediaFile: mediaFile,
+                          mediaFit: mediaFit,
+                          mediaOpacity: mediaOpacity,
+                          displayOrder: displayOrder,
+                          displaySeconds: displaySeconds,
+                          rangeOffset: rangeOffset,
+                          rangeCount: rangeCount,
+                          borderWidth: borderWidth,
+                          borderColor: borderColor,
+                          videoLoop: videoLoop,
+                          videoMuted: videoMuted,
+                        );
+                      },
+                );
+              },
             )
           else if (!_chromeHidden)
             Positioned(
               right: 12,
               top: 12,
-              child: Material(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(10),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        board.compName,
-                        style: const TextStyle(color: Colors.white70),
+              child: Builder(
+                builder: (context) {
+                  final c = context.watch<BillboardController>();
+                  return Material(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
                       ),
-                      IconButton(
-                        tooltip: 'Edit layout',
-                        onPressed: _enterLayoutEdit,
-                        icon: const Icon(
-                          Icons.edit_outlined,
-                          color: Colors.white,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            c.board?.compName ?? '',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          IconButton(
+                            tooltip: 'Edit layout',
+                            onPressed: _enterLayoutEdit,
+                            icon: const Icon(
+                              Icons.edit_outlined,
+                              color: Colors.white,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Reload',
+                            onPressed: () => c.reloadSilent(full: true),
+                            icon: const Icon(
+                              Icons.refresh,
+                              color: Colors.white,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Settings',
+                            onPressed: () => c.disconnectToSettings(),
+                            icon: const Icon(
+                              Icons.settings,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        tooltip: 'Reload',
-                        onPressed: () => c.reloadSilent(full: true),
-                        icon: const Icon(Icons.refresh, color: Colors.white),
-                      ),
-                      IconButton(
-                        tooltip: 'Settings',
-                        onPressed: () => c.disconnectToSettings(),
-                        icon: const Icon(Icons.settings, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             ),
-          // Hidden exit: 4 taps on the top-left corner (not in edit mode).
           if (!editing)
             Positioned(
               left: 0,
@@ -642,6 +488,7 @@ class _BoardPageState extends State<BoardPage> {
             ),
         ],
       ),
+    ),
     );
   }
 
@@ -692,8 +539,33 @@ class _BoardPageState extends State<BoardPage> {
   }
 
   void _selectBlock(int id) {
-    if (_selectedId == id) return;
-    setState(() => _selectedId = id);
+    if (_selectedId != id) {
+      setState(() => _selectedId = id);
+    }
+    _boardFocus.requestFocus();
+  }
+
+  bool get _isTypingInField {
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary == null || primary == _boardFocus) return false;
+    final ctx = primary.context;
+    if (ctx == null) return false;
+    return ctx.findAncestorStateOfType<EditableTextState>() != null;
+  }
+
+  KeyEventResult _onBoardKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final editing = context.read<BillboardController>().layoutEditing;
+    if (!editing || _selectedId == null || _isTypingInField) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.delete ||
+        key == LogicalKeyboardKey.backspace) {
+      _deleteSelectedBlock();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   void _enterLayoutEdit() {
@@ -962,31 +834,49 @@ class _BoardPageState extends State<BoardPage> {
       useRootNavigator: true,
       barrierDismissible: false,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF121824),
-          title: const Text(
-            'Delete block?',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: Text(
-            'Remove block #$id from bb_arrangement?\n'
-            'This cannot be undone from the app.',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(ctx, rootNavigator: true).pop(false),
-              child: const Text('Cancel'),
+        void accept() => Navigator.of(ctx, rootNavigator: true).pop(true);
+        void cancel() => Navigator.of(ctx, rootNavigator: true).pop(false);
+        return Focus(
+          autofocus: true,
+          onKeyEvent: (node, event) {
+            if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            final key = event.logicalKey;
+            if (key == LogicalKeyboardKey.enter ||
+                key == LogicalKeyboardKey.numpadEnter) {
+              accept();
+              return KeyEventResult.handled;
+            }
+            if (key == LogicalKeyboardKey.escape) {
+              cancel();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF121824),
+            title: const Text(
+              'Delete block?',
+              style: TextStyle(color: Colors.white),
             ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626),
+            content: Text(
+              'Remove block #$id from bb_arrangement?\n'
+              'This cannot be undone from the app.',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: cancel,
+                child: const Text('Cancel'),
               ),
-              child: const Text('Delete'),
-            ),
-          ],
+              FilledButton(
+                onPressed: accept,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1016,25 +906,44 @@ class _BoardPageState extends State<BoardPage> {
     );
   }
 
+  /// Returns a path that is safe to store in MySQL `latin1` columns.
+  ///
+  /// If the picked path already is latin1-safe, keep it. Otherwise copy into
+  /// app documents under a sanitized filename (macOS often has U+202F in
+  /// names like "… p.m.mp4").
   Future<String?> _localPathForPicked(PlatformFile file) async {
     final existing = file.path?.trim() ?? '';
-    if (existing.isNotEmpty) return existing;
+    final rawName = file.name.isNotEmpty
+        ? file.name
+        : (existing.isNotEmpty ? p.basename(existing) : 'media.bin');
+    final safeName = UnicodeText.safeFileName(rawName);
+    final needsCopy = existing.isEmpty ||
+        UnicodeText.mysqlSafe(existing) != existing ||
+        safeName != rawName;
+
+    if (!needsCopy) return existing;
+
     try {
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) return null;
       final dir = await getApplicationDocumentsDirectory();
       final dest = File(
         p.join(
           dir.path,
           'bb_media',
-          file.name.isNotEmpty ? file.name : 'media.bin',
+          '${DateTime.now().millisecondsSinceEpoch}_$safeName',
         ),
       );
       await dest.parent.create(recursive: true);
-      await dest.writeAsBytes(bytes, flush: true);
+      if (existing.isNotEmpty) {
+        await File(existing).copy(dest.path);
+      } else {
+        final bytes = await file.readAsBytes();
+        if (bytes.isEmpty) return null;
+        await dest.writeAsBytes(bytes, flush: true);
+      }
       return dest.path;
     } on Object {
-      return null;
+      // Fall back to original path if copy fails (may still fail MySQL save).
+      return existing.isNotEmpty ? existing : null;
     }
   }
 
@@ -1091,9 +1000,11 @@ class _BoardPageState extends State<BoardPage> {
       if (files.isEmpty) return;
       final file = files.first;
       final path = await _localPathForPicked(file);
-      final name = file.name.isNotEmpty
-          ? file.name
-          : (path != null ? p.basename(path) : 'video');
+      final name = UnicodeText.safeFileName(
+        file.name.isNotEmpty
+            ? file.name
+            : (path != null ? p.basename(path) : 'video'),
+      );
       if ((path == null || path.isEmpty) && name.isEmpty) return;
 
       final ok = await c.setBoardBackgroundVideo(
@@ -1164,9 +1075,11 @@ class _BoardPageState extends State<BoardPage> {
       if (files.isEmpty) return;
       final file = files.first;
       final path = await _localPathForPicked(file) ?? '';
-      final name = file.name.isNotEmpty
-          ? file.name
-          : (path.isNotEmpty ? p.basename(path) : 'media');
+      final name = UnicodeText.safeFileName(
+        file.name.isNotEmpty
+            ? file.name
+            : (path.isNotEmpty ? p.basename(path) : 'media'),
+      );
 
       List<int>? bytes;
       if (mediaType == ArrangementMediaType.image) {
@@ -1228,6 +1141,374 @@ class _BoardPageState extends State<BoardPage> {
       ),
     );
   }
+}
+
+/// Selector key so the canvas ignores dirty/saving-only notifies.
+class _CanvasKey {
+  const _CanvasKey({
+    required this.board,
+    required this.editing,
+    required this.customerDisplay,
+    required this.activeRotationId,
+    required this.previewRotation,
+    required this.selectedId,
+  });
+
+  final BillboardBoard board;
+  final bool editing;
+  final bool customerDisplay;
+  final int? activeRotationId;
+  final bool previewRotation;
+  final int? selectedId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CanvasKey &&
+      identical(board, other.board) &&
+      editing == other.editing &&
+      customerDisplay == other.customerDisplay &&
+      activeRotationId == other.activeRotationId &&
+      previewRotation == other.previewRotation &&
+      selectedId == other.selectedId;
+
+  @override
+  int get hashCode => Object.hash(
+    identityHashCode(board),
+    editing,
+    customerDisplay,
+    activeRotationId,
+    previewRotation,
+    selectedId,
+  );
+}
+
+class _ChromeKey {
+  const _ChromeKey({
+    required this.board,
+    required this.dirty,
+    required this.saving,
+    required this.creating,
+    required this.uploading,
+    required this.customerDisplay,
+    required this.selectedId,
+  });
+
+  final BillboardBoard board;
+  final bool dirty;
+  final bool saving;
+  final bool creating;
+  final bool uploading;
+  final bool customerDisplay;
+  final int? selectedId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ChromeKey &&
+      identical(board, other.board) &&
+      dirty == other.dirty &&
+      saving == other.saving &&
+      creating == other.creating &&
+      uploading == other.uploading &&
+      customerDisplay == other.customerDisplay &&
+      selectedId == other.selectedId;
+
+  @override
+  int get hashCode => Object.hash(
+    identityHashCode(board),
+    dirty,
+    saving,
+    creating,
+    uploading,
+    customerDisplay,
+    selectedId,
+  );
+}
+
+class _BoardCanvasLayer extends StatelessWidget {
+  const _BoardCanvasLayer({
+    required this.board,
+    required this.editing,
+    required this.customerDisplay,
+    required this.selectedId,
+    required this.screen,
+    required this.maxBlockWidth,
+    required this.maxPos,
+    required this.onToggleChrome,
+    required this.onSelectBlock,
+    required this.onClearSelection,
+    required this.designWidth,
+    required this.designHeight,
+    required this.withSelectedOnTop,
+  });
+
+  final BillboardBoard board;
+  final bool editing;
+  final bool customerDisplay;
+  final int? selectedId;
+  final Size screen;
+  final int maxBlockWidth;
+  final int maxPos;
+  final VoidCallback onToggleChrome;
+  final ValueChanged<int> onSelectBlock;
+  final VoidCallback onClearSelection;
+  final double Function(BillboardBoard) designWidth;
+  final double Function(BillboardBoard) designHeight;
+  final List<T> Function<T>(List<T> items, int Function(T) idOf)
+      withSelectedOnTop;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.read<BillboardController>();
+    // Live ticket panel only while POS has an active non-empty order.
+    // When empty/cleared, hide entirely and use the full board.
+    final liveReady =
+        context.select((LiveOrderController l) => l.config.isReady);
+    final liveTicket =
+        context.select((LiveOrderController l) => l.showCustomerTicket);
+    final showOrderPanel = customerDisplay &&
+        (!liveReady || liveTicket);
+    final designW = designWidth(board);
+    final designH = designHeight(board);
+
+    final pictures = withSelectedOnTop([
+      for (final p in board.pictures)
+        if (c.isArrangementVisible(p.arrangement)) p,
+    ], (p) => p.arrangement.id);
+    final sections = withSelectedOnTop([
+      for (final s in board.sections)
+        if (c.isArrangementVisible(s.arrangement)) s,
+    ], (s) => s.arrangement.id);
+    final bgPictures = board.boardBackgroundPictures;
+    final activeBgPictures =
+        bgPictures.length <= 1 ? bgPictures : bgPictures.take(1).toList();
+    final fgPictures = [
+      for (final p in pictures)
+        if (!p.arrangement.isBoardBackground) p,
+    ];
+    final orderColW =
+        showOrderPanel ? _customerDisplayWidth(screen.width) : 0.0;
+    final bg = QbColors.of(board.mainBackColor);
+
+    return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onDoubleTap: editing ? null : onToggleChrome,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return InteractiveViewer(
+                    panEnabled: !editing,
+                    scaleEnabled: !editing,
+                    minScale: 0.4,
+                    maxScale: 3,
+                    child: SizedBox(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ColoredBox(color: bg),
+                          for (final pic in activeBgPictures)
+                            Positioned.fill(
+                              key: ValueKey('bg-${pic.arrangement.id}'),
+                              child: editing
+                                  ? GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () =>
+                                          onSelectBlock(pic.arrangement.id),
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          border: Border.all(
+                                            color: selectedId ==
+                                                    pic.arrangement.id
+                                                ? CamaleonColors.green
+                                                : Colors.transparent,
+                                            width: 3,
+                                          ),
+                                        ),
+                                        child: BillboardPicturePanel(
+                                          block: pic,
+                                        ),
+                                      ),
+                                    )
+                                  : BillboardPicturePanel(block: pic),
+                            ),
+                          FittedBox(
+                            fit: BoxFit.contain,
+                            // topLeft so x=0 blocks sit on the left edge
+                            // (topCenter letterboxed and blocked "further left").
+                            alignment: Alignment.topLeft,
+                            child: SizedBox(
+                              width: designW,
+                              height: designH,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  if (editing)
+                                    Positioned.fill(
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.translucent,
+                                        onTap: onClearSelection,
+                                      ),
+                                    ),
+                                  for (final section in sections)
+                                    _BoardBlock(
+                                      key: ValueKey(
+                                        'sec-${section.arrangement.id}',
+                                      ),
+                                      x: section.arrangement.xDistance
+                                          .toDouble(),
+                                      y: section.arrangement.yDistance
+                                          .toDouble(),
+                                      width: section.arrangement.maxWidth
+                                          .toDouble()
+                                          .clamp(
+                                            120,
+                                            maxBlockWidth.toDouble(),
+                                          ),
+                                      editing: editing,
+                                      selected:
+                                          selectedId == section.arrangement.id,
+                                      resizable: true,
+                                      contentRevision:
+                                          '${section.arrangement.classFontSize}-'
+                                          '${section.arrangement.itemFontSize}-'
+                                          '${section.arrangement.maxWidth}-'
+                                          '${section.arrangement.classBackColor}-'
+                                          '${section.arrangement.itemBackColor}-'
+                                          '${section.arrangement.classForeColor}-'
+                                          '${section.arrangement.itemForeColor}-'
+                                          '${section.arrangement.classBold}-'
+                                          '${section.arrangement.itemBold}-'
+                                          '${section.arrangement.classUpperCase}-'
+                                          '${section.arrangement.itemUpperCase}-'
+                                          '${section.arrangement.modifierColor}-'
+                                          '${section.arrangement.modifierFontSize}-'
+                                          '${section.arrangement.classFontName}-'
+                                          '${section.arrangement.itemFontName}-'
+                                          '${section.arrangement.modifierFontName}-'
+                                          '${section.arrangement.contentType.dbValue}-'
+                                          '${section.arrangement.borderTopWidth}-'
+                                          '${section.arrangement.borderTopColor}-'
+                                          '${section.arrangement.rangeItems}-'
+                                          '${section.arrangement.offerId}-'
+                                          '${section.arrangement.displayOrder}-'
+                                          '${section.arrangement.displaySeconds}-'
+                                          '${section.className}-'
+                                          '${Object.hashAll([
+                                            for (final i in section.items)
+                                              Object.hash(
+                                                i.itemId,
+                                                i.name,
+                                                i.price,
+                                                i.description,
+                                              ),
+                                          ])}',
+                                      onSelect: () =>
+                                          onSelectBlock(section.arrangement.id),
+                                      onDragStarted: c.markLayoutDirty,
+                                      onCommit: (x, y, width, height) {
+                                        c.commitArrangementGeometry(
+                                          arrangementId:
+                                              section.arrangement.id,
+                                          xDistance: x,
+                                          yDistance: y,
+                                          maxWidth: width.round(),
+                                          maxX: maxPos,
+                                          maxY: maxPos,
+                                        );
+                                      },
+                                      child: MenuSectionPanel(
+                                        section: section,
+                                      ),
+                                    ),
+                                  for (final pic in fgPictures)
+                                    _BoardBlock(
+                                      key: ValueKey(
+                                        'pic-${pic.arrangement.id}',
+                                      ),
+                                      x: pic.x.toDouble(),
+                                      y: pic.y.toDouble(),
+                                      width: pic.arrangement.maxWidth
+                                          .toDouble()
+                                          .clamp(40, maxBlockWidth.toDouble()),
+                                      height:
+                                          pic.arrangement.pictureDisplayHeight,
+                                      editing: editing,
+                                      selected:
+                                          selectedId == pic.arrangement.id,
+                                      resizable: true,
+                                      minWidth: 80,
+                                      lockAspectHeight: true,
+                                      contentRevision:
+                                          '${pic.arrangement.maxWidth}-'
+                                          '${pic.bytes?.length ?? 0}-'
+                                          '${pic.route}-'
+                                          '${pic.arrangement.mediaFit.dbValue}-'
+                                          '${pic.arrangement.mediaOpacity}-'
+                                          '${pic.arrangement.borderTopWidth}-'
+                                          '${pic.arrangement.borderTopColor}-'
+                                          '${pic.arrangement.mediaType.dbValue}',
+                                      onSelect: () =>
+                                          onSelectBlock(pic.arrangement.id),
+                                      onDragStarted: c.markLayoutDirty,
+                                      onCommit: (x, y, width, height) {
+                                        c.commitArrangementGeometry(
+                                          arrangementId: pic.arrangement.id,
+                                          xDistance: x,
+                                          yDistance: y,
+                                          maxWidth: width.round(),
+                                          minWidth: 80,
+                                          maxX: maxPos,
+                                          maxY: maxPos,
+                                        );
+                                      },
+                                      child: BillboardPicturePanel(block: pic),
+                                    ),
+                                  if (board.sections.isEmpty &&
+                                      board.pictures.isEmpty)
+                                    const Center(
+                                      child: Text(
+                                        'No bb_arrangement rows for this computer name.\n'
+                                        'Configure screens in Camaleon POS → Billboard.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          if (showOrderPanel) ...[
+            Container(
+              width: 1,
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
+            CustomerOrderBoardPanel(width: orderColW),
+          ],
+        ],
+    );
+  }
+}
+
+double _customerDisplayWidth(double screenW) {
+  if (screenW >= 1600) return 560;
+  if (screenW >= 1280) return 480;
+  if (screenW >= 1024) return 420;
+  if (screenW >= 800) return 360;
+  return (screenW * 0.5).clamp(300.0, 360.0);
 }
 
 class _EditChrome extends StatelessWidget {

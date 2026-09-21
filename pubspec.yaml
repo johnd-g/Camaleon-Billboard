@@ -24,6 +24,7 @@ dependencies:
   google_fonts: ^8.2.1
   video_player: ^2.11.1
   fvp: ^0.38.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

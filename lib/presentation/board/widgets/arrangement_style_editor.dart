@@ -13,6 +13,7 @@ import 'package:camaleon_billboard/presentation/board/widgets/customer_order_pre
 typedef StylePatch = void Function({
   int? classFontDelta,
   int? itemFontDelta,
+  int? classFontSize,
   int? modifierFontSize,
   int? classForeColor,
   int? classBackColor,
@@ -205,17 +206,29 @@ class ArrangementStyleEditor extends StatelessWidget {
           _Card(
             child: Column(
               children: [
-                _StepperRow(
-                  icon: Icons.title_rounded,
-                  label: 'Header',
-                  valueLabel: '${a.classFontSize}',
-                  unit: 'px',
-                  onMinus: () => onPatch(classFontDelta: -1),
-                  onPlus: () => onPatch(classFontDelta: 1),
-                  onMinusBig: () => onPatch(classFontDelta: -4),
-                  onPlusBig: () => onPatch(classFontDelta: 4),
-                  embedded: true,
+                _StyleToggle(
+                  label: 'Show header',
+                  value: a.showClassHeader,
+                  onChanged: (v) => onPatch(
+                    classFontSize: v
+                        ? (a.classFontSize > 0 ? a.classFontSize : 24)
+                        : 0,
+                  ),
                 ),
+                if (a.showClassHeader) ...[
+                  const _Divider(),
+                  _StepperRow(
+                    icon: Icons.title_rounded,
+                    label: 'Header',
+                    valueLabel: '${a.classFontSize}',
+                    unit: 'px',
+                    onMinus: () => onPatch(classFontDelta: -1),
+                    onPlus: () => onPatch(classFontDelta: 1),
+                    onMinusBig: () => onPatch(classFontDelta: -4),
+                    onPlusBig: () => onPatch(classFontDelta: 4),
+                    embedded: true,
+                  ),
+                ],
                 const _Divider(),
                 _StepperRow(
                   icon: Icons.format_list_bulleted_rounded,
@@ -541,9 +554,13 @@ class _RotationEasyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.watch<BillboardController>();
-    final count = c.rotationPlaylistCount;
-    final preview = c.previewRotation;
+    final count = context.select(
+      (BillboardController c) => c.rotationPlaylistCount,
+    );
+    final preview = context.select(
+      (BillboardController c) => c.previewRotation,
+    );
+    final c = context.read<BillboardController>();
 
     return _Card(
       child: Column(
@@ -702,7 +719,7 @@ class _CustomerDisplayCard extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Show orders the customer just entered',
+                            'Live order beside the menu board',
                             style: TextStyle(
                               color: Colors.white54,
                               fontSize: 11,
@@ -1395,8 +1412,9 @@ class _OfferPickerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.watch<BillboardController>();
-    final label = c.specialOfferLabel(arrangement.offerId);
+    final label = context.select(
+      (BillboardController c) => c.specialOfferLabel(arrangement.offerId),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

@@ -1,5 +1,6 @@
 import 'package:mysql1/mysql1.dart';
 
+import 'package:camaleon_billboard/core/utils/unicode_text.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
 
 /// Thin MySQL connection holder used by data sources.
@@ -37,7 +38,15 @@ class MysqlClient {
 
   Future<Results> query(String sql, [List<Object?>? values]) async {
     final conn = await requireConnection();
-    return conn.query(sql, values);
+    if (values == null || values.isEmpty) {
+      return conn.query(sql, values);
+    }
+    // macOS paths are often NFD; latin1/utf8 columns reject combining marks.
+    final safe = [
+      for (final v in values)
+        if (v is String) UnicodeText.mysqlSafe(v) else v,
+    ];
+    return conn.query(sql, safe);
   }
 
   /// Runs [action] inside a single MySQL transaction on this connection.

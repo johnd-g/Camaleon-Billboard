@@ -5,6 +5,18 @@
 class AppFailure {
   AppFailure._();
 
+  /// Connection blips worth one retry — not schema/charset/auth errors.
+  static bool isTransient(Object error) {
+    final lower = error.toString().toLowerCase();
+    return lower.contains('gone away') ||
+        lower.contains('broken pipe') ||
+        lower.contains('packets out of order') ||
+        lower.contains('connection timed out') ||
+        lower.contains('connection reset') ||
+        lower.contains('socketexception') ||
+        lower.contains('timed out');
+  }
+
   static String message(Object error, {String? fallback}) {
     final raw = error.toString();
     final lower = raw.toLowerCase();
@@ -47,6 +59,12 @@ class AppFailure {
         lower.contains('gone away') ||
         lower.contains('broken pipe')) {
       return 'MySQL connection dropped. Try reconnecting.';
+    }
+
+    if (lower.contains('incorrect string value') || lower.contains('1366')) {
+      return 'A file path or text has characters MySQL cannot store '
+          '(often accents in macOS filenames). Try renaming the file '
+          'without special characters, or update the column to utf8mb4.';
     }
 
     // Prefer a clean first line when possible.

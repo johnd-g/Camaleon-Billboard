@@ -13,7 +13,8 @@ Future<void> main() async {
     WidgetsFlutterBinding.ensureInitialized();
 
     // Official video_player has no Windows/Linux backend — fvp fills that gap.
-    // Keep Android/iOS on the official implementation.
+    // Cap texture size so 4K sources don't decode/upload full frames (keeps
+    // the billboard UI responsive even with 1–2 looping videos).
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
@@ -21,6 +22,8 @@ Future<void> main() async {
       fvp.registerWith(
         options: {
           'platforms': ['windows', 'linux', 'macos'],
+          'maxWidth': 1280,
+          'maxHeight': 720,
         },
       );
     }

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
 import 'package:camaleon_billboard/core/db/lan_mysql_discovery.dart';
@@ -10,6 +12,7 @@ import 'package:camaleon_billboard/core/errors/app_failure.dart';
 import 'package:camaleon_billboard/core/utils/board_rotation.dart';
 import 'package:camaleon_billboard/core/utils/device_identity.dart';
 import 'package:camaleon_billboard/core/utils/qb_color.dart';
+import 'package:camaleon_billboard/core/utils/unicode_text.dart';
 import 'package:camaleon_billboard/data/repositories/billboard_repository_impl.dart';
 import 'package:camaleon_billboard/data/repositories/connection_config_repository_impl.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
@@ -104,6 +107,10 @@ class BillboardController extends ChangeNotifier {
   Timer? _refreshTimer;
   bool _reloadInFlight = false;
   int _pollTick = 0;
+
+  /// Coalesce rapid style stepper holds into fewer UI rebuilds.
+  Timer? _styleNotifyTimer;
+  bool _styleNotifyTrailing = false;
 
   /// Current rotating promo/offer/media block id (`display_seconds > 0`).
   int? activeRotationId;
@@ -722,6 +729,7 @@ class BillboardController extends ChangeNotifier {
     int minWidth = 120,
     int maxX = 100000,
     int maxY = 100000,
+    bool throttleNotify = false,
   }) {
     final b = board;
     if (b == null || !layoutEditing) return;
@@ -772,7 +780,11 @@ class BillboardController extends ChangeNotifier {
     if (!changed) return;
     board = b.copyWith(sections: sections, pictures: pictures);
     layoutDirty = true;
-    notifyListeners();
+    if (throttleNotify) {
+      _notifyStyleThrottled();
+    } else {
+      notifyListeners();
+    }
   }
 
   void resizeArrangement({
@@ -780,10 +792,12 @@ class BillboardController extends ChangeNotifier {
     required int maxWidth,
     int minWidth = 80,
   }) {
+    // Style steppers call this repeatedly on hold — throttle UI rebuilds.
     commitArrangementGeometry(
       arrangementId: arrangementId,
       maxWidth: maxWidth,
       minWidth: minWidth,
+      throttleNotify: true,
     );
   }
 
@@ -846,7 +860,7 @@ class BillboardController extends ChangeNotifier {
       var next = a;
       if (classFontDelta != null) {
         next = next.copyWith(
-          classFontSize: (next.classFontSize + classFontDelta).clamp(10, 96),
+          classFontSize: (next.classFontSize + classFontDelta).clamp(0, 96),
         );
       }
       if (itemFontDelta != null) {
@@ -855,7 +869,7 @@ class BillboardController extends ChangeNotifier {
         );
       }
       if (classFontSize != null) {
-        next = next.copyWith(classFontSize: classFontSize.clamp(10, 96));
+        next = next.copyWith(classFontSize: classFontSize.clamp(0, 96));
       }
       if (itemFontSize != null) {
         next = next.copyWith(itemFontSize: itemFontSize.clamp(8, 72));
@@ -1025,7 +1039,7 @@ class BillboardController extends ChangeNotifier {
       mainBackColor: mainBackColor?.clamp(0, 15) ?? b.mainBackColor,
     );
     layoutDirty = true;
-    notifyListeners();
+    _notifyStyleThrottled(immediate: sectionContentChanged);
     if (sectionContentChanged) {
       unawaited(_reloadSectionContent(arrangementId));
     }
@@ -1034,6 +1048,30 @@ class BillboardController extends ChangeNotifier {
             displayOrder != null ||
             contentType != null)) {
       _syncBoardRotation();
+    }
+  }
+
+  /// Leading-edge notify, then at most one trailing notify per ~100ms window.
+  /// Keeps single taps snappy while held steppers (~90ms) coalesce.
+  void _notifyStyleThrottled({bool immediate = false}) {
+    if (immediate) {
+      _styleNotifyTimer?.cancel();
+      _styleNotifyTimer = null;
+      _styleNotifyTrailing = false;
+      notifyListeners();
+      return;
+    }
+    if (_styleNotifyTimer == null) {
+      notifyListeners();
+      _styleNotifyTimer = Timer(const Duration(milliseconds: 100), () {
+        _styleNotifyTimer = null;
+        if (_styleNotifyTrailing) {
+          _styleNotifyTrailing = false;
+          notifyListeners();
+        }
+      });
+    } else {
+      _styleNotifyTrailing = true;
     }
   }
 
@@ -1691,8 +1729,7 @@ class BillboardController extends ChangeNotifier {
 
   /// Persists pending edit-session changes (layout, media, deletes, prefs).
   ///
-  /// Retries the MySQL transaction a few times on failure (safe: each attempt
-  /// rolls back fully before the next try). Draft state stays in memory.
+  /// Retries once only on transient MySQL connection drops.
   Future<bool> saveLayoutEdits() async {
     final b = board;
     if (b == null) {
@@ -1715,7 +1752,8 @@ class BillboardController extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
 
-    const maxAttempts = 3;
+    // Retry only transient MySQL drops — charset/schema errors fail once.
+    const maxAttempts = 2;
     Object? lastError;
     StackTrace? lastStack;
 
@@ -1747,9 +1785,12 @@ class BillboardController extends ChangeNotifier {
             'Save layout attempt $attempt/$maxAttempts failed: $e\n$st',
           );
         }
-        if (attempt < maxAttempts) {
+        final retry = attempt < maxAttempts && AppFailure.isTransient(e);
+        if (retry) {
           await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+          continue;
         }
+        break;
       }
     }
 
@@ -1765,6 +1806,10 @@ class BillboardController extends ChangeNotifier {
   }
 
   Future<void> _persistLayoutTransaction(BillboardBoard b, String name) async {
+    // Rewrite any non-latin1 media paths before UPDATEs (layout also writes
+    // media_file). Otherwise MySQL 1366 or a broken path after reload.
+    b = await _withMysqlSafeMediaPaths(b);
+
     await _billboardRepo.runInTransaction(() async {
       // 1) Pending deletes (real rows only)
       for (final id in List<int>.of(_sessionDeletedIds)) {
@@ -1785,10 +1830,13 @@ class BillboardController extends ChangeNotifier {
         case _PendingBoardBg.video:
           final file = _pendingBoardBgVideoFile?.trim() ?? '';
           if (file.isNotEmpty) {
+            final route = await _mysqlSafeMediaPath(
+              _pendingBoardBgVideoRoute ?? file,
+            );
             await _billboardRepo.upsertBoardBackgroundVideo(
               compName: name,
-              mediaFile: file,
-              pictureRoute: _pendingBoardBgVideoRoute ?? file,
+              mediaFile: UnicodeText.safeFileName(file),
+              pictureRoute: route,
               mainBackColor: b.mainBackColor,
             );
           }
@@ -1878,12 +1926,20 @@ class BillboardController extends ChangeNotifier {
         }
         if (pic == null) continue;
         final a = pic.arrangement;
+        final safeRoute = await _mysqlSafeMediaPath(
+          a.pictureRoute.isNotEmpty ? a.pictureRoute : a.mediaFile,
+        );
+        final safeFile = a.mediaType == ArrangementMediaType.video
+            ? (safeRoute.isNotEmpty
+                  ? safeRoute
+                  : UnicodeText.safeFileName(a.mediaFile))
+            : UnicodeText.safeFileName(a.mediaFile);
         await _billboardRepo.updateArrangementMedia(
           id: id,
           compName: name,
           mediaType: a.mediaType,
-          mediaFile: a.mediaFile,
-          pictureRoute: a.pictureRoute,
+          mediaFile: safeFile,
+          pictureRoute: safeRoute.isNotEmpty ? safeRoute : safeFile,
           pictureBytes: a.mediaType == ArrangementMediaType.image
               ? (a.pictureBytes ?? const <int>[])
               : (a.mediaType == ArrangementMediaType.none ||
@@ -1893,6 +1949,78 @@ class BillboardController extends ChangeNotifier {
         );
       }
     });
+  }
+
+  /// Copy media to a latin1-safe path under app documents when needed.
+  Future<String> _mysqlSafeMediaPath(String raw) async {
+    final path = raw.trim();
+    if (path.isEmpty) return path;
+    if (UnicodeText.mysqlSafe(path) == path) return path;
+
+    final src = File(path);
+    if (!await src.exists()) {
+      return UnicodeText.mysqlSafe(path);
+    }
+
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final dest = File(
+        p.join(
+          dir.path,
+          'bb_media',
+          '${DateTime.now().millisecondsSinceEpoch}_'
+          '${UnicodeText.safeFileName(p.basename(path))}',
+        ),
+      );
+      await dest.parent.create(recursive: true);
+      await src.copy(dest.path);
+      return dest.path;
+    } on Object {
+      return UnicodeText.mysqlSafe(path);
+    }
+  }
+
+  Future<BillboardBoard> _withMysqlSafeMediaPaths(BillboardBoard b) async {
+    final pictures = <PictureBlock>[];
+    var changed = false;
+    for (final pic in b.pictures) {
+      final a = pic.arrangement;
+      if (a.mediaType != ArrangementMediaType.video) {
+        pictures.add(pic);
+        continue;
+      }
+      final route = a.pictureRoute.isNotEmpty ? a.pictureRoute : a.mediaFile;
+      final safeRoute = await _mysqlSafeMediaPath(route);
+      final safeFile = safeRoute.isNotEmpty
+          ? safeRoute
+          : UnicodeText.safeFileName(a.mediaFile);
+      if (safeRoute == route && safeFile == a.mediaFile) {
+        pictures.add(pic);
+        continue;
+      }
+      changed = true;
+      pictures.add(
+        pic.copyWith(
+          arrangement: a.copyWith(
+            mediaFile: safeFile,
+            pictureRoute: safeRoute.isNotEmpty ? safeRoute : safeFile,
+          ),
+        ),
+      );
+    }
+    if (!changed) return b;
+
+    final next = b.copyWith(pictures: pictures);
+    board = next;
+    if (_pendingBoardBg == _PendingBoardBg.video) {
+      final route = _pendingBoardBgVideoRoute ?? _pendingBoardBgVideoFile ?? '';
+      final safe = await _mysqlSafeMediaPath(route);
+      _pendingBoardBgVideoRoute = safe;
+      _pendingBoardBgVideoFile = UnicodeText.safeFileName(
+        _pendingBoardBgVideoFile ?? p.basename(safe),
+      );
+    }
+    return next;
   }
 
   void _scheduleRefresh() {
@@ -2018,6 +2146,7 @@ class BillboardController extends ChangeNotifier {
   void dispose() {
     _refreshTimer?.cancel();
     _rotationTimer?.cancel();
+    _styleNotifyTimer?.cancel();
     unawaited(_billboardRepo.disconnect());
     super.dispose();
   }

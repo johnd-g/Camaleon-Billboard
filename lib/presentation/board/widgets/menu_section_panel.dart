@@ -33,12 +33,12 @@ class MenuSectionPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Full-bleed header — no side padding (avoids a “border” from item fill).
-          _ClassHeader(
-            arrangement: a,
-            title: section.className,
-            isOffer: a.contentType == ArrangementContentType.offer,
-          ),
+          if (a.showClassHeader)
+            _ClassHeader(
+              arrangement: a,
+              title: section.className,
+              isOffer: a.contentType == ArrangementContentType.offer,
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: Column(

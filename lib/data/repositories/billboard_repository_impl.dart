@@ -686,7 +686,7 @@ WHERE ID = ? AND comp_name = ?
         a.xDistance.clamp(0, 100000),
         a.yDistance.clamp(0, 100000),
         a.maxWidth.clamp(80, 20000),
-        a.classFontSize.clamp(10, 96),
+        a.classFontSize.clamp(0, 96),
         a.itemFontSize.clamp(8, 72),
         a.classFontName,
         a.itemFontName,

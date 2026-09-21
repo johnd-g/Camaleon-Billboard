@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:camaleon_billboard/core/db/db_connection_qr.dart';
 import 'package:camaleon_billboard/core/utils/device_identity.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
+import 'package:camaleon_billboard/domain/entities/live_order_config.dart';
 import 'package:camaleon_billboard/domain/repositories/connection_config_repository.dart';
 
 /// Local prefs + optional shared Camaleon connection file.
@@ -26,6 +27,10 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   static const _kSortAbc = 'arrangeabc';
   static const _kRefresh = 'refresh_seconds';
   static const _kCustomerDisplay = 'customer_display';
+  static const _kLiveOrderHost = 'liveOrderHost';
+  static const _kLiveOrderPort = 'liveOrderPort';
+  static const _kLiveOrderPollMs = 'liveOrderPollMs';
+  static const _kLiveOrderEnabled = 'liveOrderEnabled';
 
   @override
   Future<DbConnectionConfig> load() async {
@@ -97,6 +102,33 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   Future<void> saveCustomerDisplay(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kCustomerDisplay, value);
+  }
+
+  @override
+  Future<LiveOrderConfig> loadLiveOrderConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    return LiveOrderConfig(
+      host: prefs.getString(_kLiveOrderHost) ?? '',
+      port: prefs.getInt(_kLiveOrderPort) ?? 8777,
+      pollMs: (prefs.getInt(_kLiveOrderPollMs) ?? 500).clamp(200, 10000),
+      enabled: prefs.getBool(_kLiveOrderEnabled) ?? false,
+    );
+  }
+
+  @override
+  Future<void> saveLiveOrderConfig(LiveOrderConfig config) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = config.normalized();
+    await prefs.setString(_kLiveOrderHost, normalized.host);
+    await prefs.setInt(
+      _kLiveOrderPort,
+      normalized.port <= 0 ? 8777 : normalized.port,
+    );
+    await prefs.setInt(
+      _kLiveOrderPollMs,
+      normalized.pollMs.clamp(200, 10000),
+    );
+    await prefs.setBool(_kLiveOrderEnabled, normalized.enabled);
   }
 
   @override

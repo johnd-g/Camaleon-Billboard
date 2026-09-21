@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
+import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
+import 'package:camaleon_billboard/presentation/live_order/live_order_page.dart';
 
 final _orderMoney = NumberFormat.currency(symbol: '\$');
 
@@ -13,7 +16,7 @@ String _fmtQty(double qty) {
   return qty.toStringAsFixed(2);
 }
 
-/// Placeholder tickets until live POS wiring is enabled again.
+/// Placeholder tickets shown only when Live order is not configured.
 const kSampleCustomerOrders = <CustomerOrderTicket>[
   CustomerOrderTicket(
     cuentaId: 1042,
@@ -42,6 +45,36 @@ class CustomerOrderSidebarPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final live = context.watch<LiveOrderController>();
+    if (live.config.isReady) {
+      if (!live.showCustomerTicket) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'Hidden while order is empty',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45),
+              fontSize: 12,
+            ),
+          ),
+        );
+      }
+      return SizedBox(
+        height: 220,
+        child: Material(
+          color: const Color(0xFF0B1220),
+          borderRadius: BorderRadius.circular(10),
+          clipBehavior: Clip.antiAlias,
+          child: const LiveOrderTicketView(
+            compact: true,
+            showHeaderTitle: true,
+            customerDisplay: true,
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -61,64 +94,76 @@ class CustomerOrderSidebarPreview extends StatelessWidget {
 
 /// Side column for Customer display — sits beside the menu board (no overlay).
 class CustomerOrderBoardPanel extends StatelessWidget {
-  const CustomerOrderBoardPanel({
-    super.key,
-    this.width = 320,
-  });
+  const CustomerOrderBoardPanel({super.key, this.width = 320});
 
   final double width;
 
   @override
   Widget build(BuildContext context) {
+    final live = context.watch<LiveOrderController>();
+
+    // Live order configured but ticket empty → hide panel (board fills width).
+    if (live.config.isReady && !live.showCustomerTicket) {
+      return const SizedBox.shrink();
+    }
+
     return SizedBox(
       width: width,
       child: Material(
         color: const Color(0xFF0B1220),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              color: CamaleonColors.green,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: const Text(
-                'YOUR ORDER',
+        child: live.config.isReady
+            ? const LiveOrderTicketView(compact: false, customerDisplay: true)
+            : _SampleOrdersColumn(),
+      ),
+    );
+  }
+}
+
+class _SampleOrdersColumn extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          color: CamaleonColors.green,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: const Text(
+            'CUSTOMER DISPLAY',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            children: [
+              for (var i = 0; i < kSampleCustomerOrders.length; i++) ...[
+                if (i > 0) const SizedBox(height: 10),
+                _OrderTicketCard(
+                  ticket: kSampleCustomerOrders[i].label,
+                  lines: kSampleCustomerOrders[i].lines,
+                  total: kSampleCustomerOrders[i].total,
+                  compact: false,
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Set POS IP in Settings → Live order',
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                  letterSpacing: 0.4,
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 11,
                 ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                children: [
-                  for (var i = 0; i < kSampleCustomerOrders.length; i++) ...[
-                    if (i > 0) const SizedBox(height: 10),
-                    _OrderTicketCard(
-                      ticket: kSampleCustomerOrders[i].label,
-                      lines: kSampleCustomerOrders[i].lines,
-                      total: kSampleCustomerOrders[i].total,
-                      compact: false,
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Text(
-                    'Example · customer-entered orders',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

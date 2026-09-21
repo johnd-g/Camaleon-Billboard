@@ -67,6 +67,9 @@ class ArrangementBlock {
   final bool itemUpperCase;
   final bool classBold;
   final bool itemBold;
+
+  /// `classFontSize == 0` hides the green class/header bar (persists in MySQL).
+  bool get showClassHeader => classFontSize > 0;
   final int classForeColor;
   final int classBackColor;
   final int itemForeColor;
