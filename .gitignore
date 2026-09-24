@@ -13,10 +13,6 @@
 migrate_working_dir/
 
 # FVM
-.fvm/flutter_sdk
-.fvm/versions
-.fvm/release
-.fvm/version
 
 # IntelliJ related
 *.iml
@@ -65,3 +61,6 @@ app.*.map.json
 *.aab
 *.ipa
 *.zip
+
+# FVM Version Cache
+.fvm/
