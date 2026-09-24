@@ -27,6 +27,16 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   static const _kSortAbc = 'arrangeabc';
   static const _kRefresh = 'refresh_seconds';
   static const _kCustomerDisplay = 'customer_display';
+  static const _kPoleDisplayBack = 'pole_display_back_color';
+  static const _kPoleDisplayText = 'pole_display_text_color';
+  static const _kPoleDisplaySeat = 'pole_display_seat_color';
+  static const _kPoleDisplayDark = 'pole_display_dark_mode';
+  static const _kPoleDisplayFloating = 'pole_display_floating';
+  static const _kMediaFrame = 'media_frame';
+  static const _kPoleDisplayScale = 'pole_display_scale';
+  static const _kPoleDisplayLeft = 'pole_display_left';
+  static const _kPoleDisplayTop = 'pole_display_top';
+  static const _kPoleDisplayHeight = 'pole_display_height';
   static const _kLiveOrderHost = 'liveOrderHost';
   static const _kLiveOrderPort = 'liveOrderPort';
   static const _kLiveOrderPollMs = 'liveOrderPollMs';
@@ -102,6 +112,126 @@ class ConnectionConfigRepositoryImpl implements ConnectionConfigRepository {
   Future<void> saveCustomerDisplay(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kCustomerDisplay, value);
+  }
+
+  @override
+  Future<int> loadPoleDisplayBackColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getInt(_kPoleDisplayBack) ?? 15).clamp(0, 15);
+  }
+
+  @override
+  Future<void> savePoleDisplayBackColor(int qbIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPoleDisplayBack, qbIndex.clamp(0, 15));
+  }
+
+  @override
+  Future<int> loadPoleDisplayTextColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getInt(_kPoleDisplayText) ?? 0).clamp(0, 15);
+  }
+
+  @override
+  Future<void> savePoleDisplayTextColor(int qbIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPoleDisplayText, qbIndex.clamp(0, 15));
+  }
+
+  @override
+  Future<int> loadPoleDisplaySeatColor() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getInt(_kPoleDisplaySeat) ?? 2).clamp(0, 15);
+  }
+
+  @override
+  Future<void> savePoleDisplaySeatColor(int qbIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPoleDisplaySeat, qbIndex.clamp(0, 15));
+  }
+
+  @override
+  Future<bool> loadPoleDisplayDarkMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPoleDisplayDark) ?? false;
+  }
+
+  @override
+  Future<void> savePoleDisplayDarkMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPoleDisplayDark, value);
+  }
+
+  @override
+  Future<bool> loadPoleDisplayFloating() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPoleDisplayFloating) ?? false;
+  }
+
+  @override
+  Future<void> savePoleDisplayFloating(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPoleDisplayFloating, value);
+  }
+
+  @override
+  Future<bool> loadMediaFrame() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kMediaFrame) ?? false;
+  }
+
+  @override
+  Future<void> saveMediaFrame(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kMediaFrame, value);
+  }
+
+  @override
+  Future<int> loadPoleDisplayScale() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getInt(_kPoleDisplayScale) ?? 100).clamp(70, 200);
+  }
+
+  @override
+  Future<void> savePoleDisplayScale(int percent) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPoleDisplayScale, percent.clamp(70, 200));
+  }
+
+  @override
+  Future<double> loadPoleDisplayLeft() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_kPoleDisplayLeft) ?? -1;
+  }
+
+  @override
+  Future<void> savePoleDisplayLeft(double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kPoleDisplayLeft, value);
+  }
+
+  @override
+  Future<double> loadPoleDisplayTop() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_kPoleDisplayTop) ?? 16;
+  }
+
+  @override
+  Future<void> savePoleDisplayTop(double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kPoleDisplayTop, value);
+  }
+
+  @override
+  Future<int> loadPoleDisplayHeight() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kPoleDisplayHeight) ?? 0;
+  }
+
+  @override
+  Future<void> savePoleDisplayHeight(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kPoleDisplayHeight, value);
   }
 
   @override

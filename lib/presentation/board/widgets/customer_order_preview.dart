@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
+import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_page.dart';
 
@@ -60,16 +61,19 @@ class CustomerOrderSidebarPreview extends StatelessWidget {
           ),
         );
       }
-      return SizedBox(
-        height: 220,
-        child: Material(
-          color: const Color(0xFF0B1220),
-          borderRadius: BorderRadius.circular(10),
-          clipBehavior: Clip.antiAlias,
-          child: const LiveOrderTicketView(
-            compact: true,
-            showHeaderTitle: true,
-            customerDisplay: true,
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: 520,
+          child: Material(
+            color: receiptSurface(
+              context.select((BillboardController c) => c.poleDisplayDarkMode),
+            ),
+            child: const LiveOrderTicketView(
+              compact: false,
+              showHeaderTitle: true,
+              customerDisplay: true,
+            ),
           ),
         ),
       );
@@ -110,7 +114,9 @@ class CustomerOrderBoardPanel extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Material(
-        color: const Color(0xFF0B1220),
+        color: receiptSurface(
+          context.select((BillboardController c) => c.poleDisplayDarkMode),
+        ),
         child: live.config.isReady
             ? const LiveOrderTicketView(compact: false, customerDisplay: true)
             : _SampleOrdersColumn(),

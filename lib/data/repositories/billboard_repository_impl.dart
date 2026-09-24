@@ -182,6 +182,7 @@ INNER JOIN it_titem
   ON it_titem.ITEM_Class_ID = it_titemclass.Class_ID
 WHERE it_titem.ITEM_Sale_Price <> 0
   AND it_titem.ITEM_Show = 1
+  AND IFNULL(it_titem.ITEM_ShowOnBB, 0) = 1
   AND it_titemclass.Class_ID = ?
 GROUP BY it_titem.ITEM_ID
 ORDER BY $orderBy
@@ -261,6 +262,7 @@ WHERE day_specials.PR_ID = ?
   AND IFNULL(day_specials.item_dis, 0) <> 1
   AND IFNULL(day_specials.class_dis, 0) <> 1
   AND IFNULL(it_titem.ITEM_Show, 1) = 1
+  AND IFNULL(it_titem.ITEM_ShowOnBB, 0) = 1
 ORDER BY $orderBy
 ''';
 
@@ -286,6 +288,7 @@ LEFT JOIN dates_special ds
 WHERE day_specials.PR_ID = ?
   AND IFNULL(day_specials.item_dis, 0) <> 1
   AND IFNULL(day_specials.class_dis, 0) <> 1
+  AND IFNULL(it_titem.ITEM_ShowOnBB, 0) = 1
 ORDER BY it_titem.ITEM_Description ASC
 ''',
         [offerId],
@@ -456,6 +459,52 @@ ORDER BY ds.DateOut ASC
     } catch (_) {
       return const [];
     }
+  }
+
+  @override
+  Future<({bool enabled, int width})?> loadPoleDisplay(String stationName) async {
+    final name = stationName.trim();
+    if (name.isEmpty) return null;
+    try {
+      final rows = await _client.query(
+        'SELECT Pole_Display, Pole_Display_Width '
+        'FROM it_tregister '
+        'WHERE TRIM(Regi_Code) = ? OR TRIM(Regi_Name) = ? '
+        'ORDER BY CASE WHEN TRIM(Regi_Code) = ? THEN 0 ELSE 1 END '
+        'LIMIT 1',
+        [name, name, name],
+      );
+      if (rows.isEmpty) return null;
+      final row = rows.first;
+      return (
+        enabled: Utils.asFlag(row['Pole_Display']),
+        width: Utils.asInt(row['Pole_Display_Width']),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> savePoleDisplay({
+    required String stationName,
+    required bool enabled,
+    required int width,
+  }) async {
+    final name = stationName.trim();
+    if (name.isEmpty) return;
+    final px = width.clamp(280, 900);
+    await _client.query(
+      'UPDATE it_tregister SET '
+      'Pole_Display = ?, '
+      'Pole_Display_Width = ?, '
+      "Pole_Setting = IF(Pole_Setting IS NULL OR TRIM(Pole_Setting) = '', "
+      "'9600,N,8,1', Pole_Setting) "
+      'WHERE TRIM(Regi_Code) = ? OR TRIM(Regi_Name) = ? '
+      'ORDER BY CASE WHEN TRIM(Regi_Code) = ? THEN 0 ELSE 1 END '
+      'LIMIT 1',
+      [enabled ? 1 : 0, px, name, name, name],
+    );
   }
 
   @override

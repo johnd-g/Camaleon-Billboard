@@ -71,6 +71,37 @@ class BillboardController extends ChangeNotifier {
   int refreshSeconds = 5;
   bool customerDisplay = false;
   bool _customerDisplaySaved = false;
+
+  /// `it_tregister.Pole_Display_Width` in pixels. 0 = use the default width.
+  int poleDisplayWidth = 0;
+
+  /// QBColor index for the customer-display order background. 15 = white.
+  int poleDisplayBackColor = 15;
+
+  /// QBColor index for item and totals text. 0 = black.
+  int poleDisplayTextColor = 0;
+
+  /// QBColor index for the seat label. 2 = green.
+  int poleDisplaySeatColor = 2;
+
+  /// Dark modifier palette. Light is the default.
+  bool poleDisplayDarkMode = false;
+
+  /// False = docked beside the board. True = floating window.
+  bool poleDisplayFloating = false;
+
+  /// Optional gray frame around board photos and videos.
+  bool mediaFrame = false;
+
+  /// Size of the customer display, in percent (100 = POS size). Steps of 10.
+  int poleDisplayScale = 100;
+
+  /// Floating panel origin. Left < 0 means "snap to the right edge".
+  double poleDisplayLeft = -1;
+  double poleDisplayTop = 16;
+
+  /// Floating panel height in pixels. 0 = about 70% of the screen.
+  int poleDisplayHeight = 0;
   String? errorMessage;
   BillboardBoard? board;
   bool testing = false;
@@ -211,6 +242,16 @@ class BillboardController extends ChangeNotifier {
     }
     customerDisplay = await _connectionRepo.loadCustomerDisplay();
     _customerDisplaySaved = customerDisplay;
+    poleDisplayBackColor = await _connectionRepo.loadPoleDisplayBackColor();
+    poleDisplayTextColor = await _connectionRepo.loadPoleDisplayTextColor();
+    poleDisplaySeatColor = await _connectionRepo.loadPoleDisplaySeatColor();
+    poleDisplayDarkMode = await _connectionRepo.loadPoleDisplayDarkMode();
+    poleDisplayFloating = await _connectionRepo.loadPoleDisplayFloating();
+    mediaFrame = await _connectionRepo.loadMediaFrame();
+    poleDisplayScale = await _connectionRepo.loadPoleDisplayScale();
+    poleDisplayLeft = await _connectionRepo.loadPoleDisplayLeft();
+    poleDisplayTop = await _connectionRepo.loadPoleDisplayTop();
+    poleDisplayHeight = await _connectionRepo.loadPoleDisplayHeight();
 
     hasSavedConnection = connection.isComplete;
     isFirstLaunch = !hasSavedConnection;
@@ -261,12 +302,141 @@ class BillboardController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setCustomerDisplay(bool enabled) {
+  Future<void> setCustomerDisplay(bool enabled) async {
     if (!layoutEditing) return;
     if (customerDisplay == enabled) return;
     customerDisplay = enabled;
-    markLayoutDirty();
     notifyListeners();
+    await _writePoleDisplay();
+  }
+
+  Future<void> setPoleDisplayBackColor(int qbIndex) async {
+    if (!layoutEditing) return;
+    final next = qbIndex.clamp(0, 15);
+    if (poleDisplayBackColor == next) return;
+    poleDisplayBackColor = next;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplayBackColor(next);
+  }
+
+  Future<void> setPoleDisplayTextColor(int qbIndex) async {
+    if (!layoutEditing) return;
+    final next = qbIndex.clamp(0, 15);
+    if (poleDisplayTextColor == next) return;
+    poleDisplayTextColor = next;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplayTextColor(next);
+  }
+
+  Future<void> setPoleDisplaySeatColor(int qbIndex) async {
+    if (!layoutEditing) return;
+    final next = qbIndex.clamp(0, 15);
+    if (poleDisplaySeatColor == next) return;
+    poleDisplaySeatColor = next;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplaySeatColor(next);
+  }
+
+  Future<void> setPoleDisplayDarkMode(bool value) async {
+    if (!layoutEditing) return;
+    if (poleDisplayDarkMode == value) return;
+    poleDisplayDarkMode = value;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplayDarkMode(value);
+  }
+
+  Future<void> setPoleDisplayFloating(bool value) async {
+    if (!layoutEditing) return;
+    if (poleDisplayFloating == value) return;
+    poleDisplayFloating = value;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplayFloating(value);
+  }
+
+  Future<void> setMediaFrame(bool value) async {
+    if (!layoutEditing) return;
+    if (mediaFrame == value) return;
+    mediaFrame = value;
+    notifyListeners();
+    await _connectionRepo.saveMediaFrame(value);
+  }
+
+  Future<void> setPoleDisplayScale(int percent) async {
+    if (!layoutEditing) return;
+    final next = percent.clamp(70, 200);
+    if (poleDisplayScale == next) return;
+    poleDisplayScale = next;
+    notifyListeners();
+    await _connectionRepo.savePoleDisplayScale(next);
+  }
+
+  Future<void> setPoleDisplayFrame({
+    double? left,
+    double? top,
+    int? width,
+    int? height,
+  }) async {
+    if (!layoutEditing) return;
+    var changed = false;
+    if (left != null && poleDisplayLeft != left) {
+      poleDisplayLeft = left;
+      changed = true;
+      await _connectionRepo.savePoleDisplayLeft(left);
+    }
+    if (top != null && poleDisplayTop != top) {
+      poleDisplayTop = top;
+      changed = true;
+      await _connectionRepo.savePoleDisplayTop(top);
+    }
+    if (height != null) {
+      final next = height.clamp(240, 1400);
+      if (poleDisplayHeight != next) {
+        poleDisplayHeight = next;
+        changed = true;
+        await _connectionRepo.savePoleDisplayHeight(next);
+      }
+    }
+    if (width != null) {
+      final next = width.clamp(280, 900);
+      if (poleDisplayWidth != next) {
+        poleDisplayWidth = next;
+        changed = true;
+        await _writePoleDisplay();
+      }
+    }
+    if (changed) notifyListeners();
+  }
+
+  Future<void> setPoleDisplayWidth(int width) async {
+    if (!layoutEditing || !customerDisplay) return;
+    final next = width.clamp(280, 900);
+    if (poleDisplayWidth == next) return;
+    poleDisplayWidth = next;
+    notifyListeners();
+    await _writePoleDisplay();
+  }
+
+  Future<void> _writePoleDisplay() async {
+    final name = computerName.trim();
+    if (name.isEmpty || !_client.isConnected) return;
+    try {
+      await _billboardRepo.savePoleDisplay(
+        stationName: name,
+        enabled: customerDisplay,
+        width: poleDisplayWidth <= 0 ? 420 : poleDisplayWidth,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('savePoleDisplay failed: $e');
+    }
+  }
+
+  Future<void> _loadPoleDisplay() async {
+    final row = await _billboardRepo.loadPoleDisplay(computerName);
+    if (row == null) return;
+    // Pole_Display=0 hides the customer display even if a local pref is on.
+    customerDisplay = row.enabled;
+    _customerDisplaySaved = row.enabled;
+    poleDisplayWidth = row.width;
   }
 
   void _clearSessionPending() {
@@ -646,6 +816,7 @@ class BillboardController extends ChangeNotifier {
       await _connectionRepo.saveComputerName(computerName);
       await _billboardRepo.connect(connection);
       await _refreshNamePickers();
+      await _loadPoleDisplay();
 
       if (createArrangementIfMissing) {
         final template = templateCompName;

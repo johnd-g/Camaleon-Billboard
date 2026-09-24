@@ -141,7 +141,8 @@ class _BoardPageState extends State<BoardPage> {
     const topBarH = 72.0;
 
     final board = context.watch<BillboardController>().board!;
-    final bg = QbColors.of(board.mainBackColor);
+    final hasBackdrop = board.boardBackgroundPictures.isNotEmpty;
+    final bg = hasBackdrop ? Colors.black : QbColors.of(board.mainBackColor);
     MenuSection? selectedSection;
     if (_selectedId != null) {
       for (final s in board.sections) {
@@ -1285,22 +1286,24 @@ class _BoardCanvasLayer extends StatelessWidget {
       for (final p in pictures)
         if (!p.arrangement.isBoardBackground) p,
     ];
-    final orderColW =
-        showOrderPanel ? _customerDisplayWidth(screen.width) : 0.0;
+    final orderColW = showOrderPanel
+        ? (c.poleDisplayWidth >= 280
+              ? c.poleDisplayWidth.toDouble()
+              : _customerDisplayWidth(screen.width))
+        : 0.0;
     final bg = QbColors.of(board.mainBackColor);
 
-    return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: GestureDetector(
+    final floating = context.select(
+      (BillboardController c) => c.poleDisplayFloating,
+    );
+    final boardView = GestureDetector(
               behavior: HitTestBehavior.opaque,
               onDoubleTap: editing ? null : onToggleChrome,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   return InteractiveViewer(
-                    panEnabled: !editing,
-                    scaleEnabled: !editing,
+                    panEnabled: false,
+                    scaleEnabled: false,
                     minScale: 0.4,
                     maxScale: 3,
                     child: SizedBox(
@@ -1309,7 +1312,7 @@ class _BoardCanvasLayer extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          ColoredBox(color: bg),
+                          if (activeBgPictures.isEmpty) ColoredBox(color: bg),
                           for (final pic in activeBgPictures)
                             Positioned.fill(
                               key: ValueKey('bg-${pic.arrangement.id}'),
@@ -1330,10 +1333,14 @@ class _BoardCanvasLayer extends StatelessWidget {
                                         ),
                                         child: BillboardPicturePanel(
                                           block: pic,
+                                          fit: BoxFit.fill,
                                         ),
                                       ),
                                     )
-                                  : BillboardPicturePanel(block: pic),
+                                  : BillboardPicturePanel(
+                                      block: pic,
+                                      fit: BoxFit.fill,
+                                    ),
                             ),
                           FittedBox(
                             fit: BoxFit.contain,
@@ -1465,7 +1472,13 @@ class _BoardCanvasLayer extends StatelessWidget {
                                           maxY: maxPos,
                                         );
                                       },
-                                      child: BillboardPicturePanel(block: pic),
+                                      child: BillboardPicturePanel(
+                                        block: pic,
+                                        framed: context.select(
+                                          (BillboardController c) =>
+                                              c.mediaFrame,
+                                        ),
+                                      ),
                                     ),
                                   if (board.sections.isEmpty &&
                                       board.pictures.isEmpty)
@@ -1489,16 +1502,34 @@ class _BoardCanvasLayer extends StatelessWidget {
                   );
                 },
               ),
-            ),
+            );
+    if (showOrderPanel && floating) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          boardView,
+          _FloatingCustomerDisplay(
+            editing: editing,
+            width: orderColW,
+            left: c.poleDisplayLeft,
+            top: c.poleDisplayTop,
+            height: c.poleDisplayHeight.toDouble(),
           ),
-          if (showOrderPanel) ...[
-            Container(
-              width: 1,
-              color: Colors.white.withValues(alpha: 0.12),
-            ),
-            CustomerOrderBoardPanel(width: orderColW),
-          ],
         ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: boardView),
+        if (showOrderPanel) ...[
+          Container(
+            width: 1,
+            color: Colors.white.withValues(alpha: 0.12),
+          ),
+          CustomerOrderBoardPanel(width: orderColW),
+        ],
+      ],
     );
   }
 }
@@ -1509,6 +1540,152 @@ double _customerDisplayWidth(double screenW) {
   if (screenW >= 1024) return 420;
   if (screenW >= 800) return 360;
   return (screenW * 0.5).clamp(300.0, 360.0);
+}
+
+class _FloatingCustomerDisplay extends StatefulWidget {
+  const _FloatingCustomerDisplay({
+    required this.editing,
+    required this.width,
+    required this.left,
+    required this.top,
+    required this.height,
+  });
+
+  final bool editing;
+  final double width;
+  final double left;
+  final double top;
+  final double height;
+
+  @override
+  State<_FloatingCustomerDisplay> createState() =>
+      _FloatingCustomerDisplayState();
+}
+
+class _FloatingCustomerDisplayState extends State<_FloatingCustomerDisplay> {
+  late double _left = widget.left;
+  late double _top = widget.top;
+  late double _width = widget.width;
+  late double _height = widget.height;
+
+  @override
+  void didUpdateWidget(covariant _FloatingCustomerDisplay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.left != widget.left) _left = widget.left;
+    if (oldWidget.top != widget.top) _top = widget.top;
+    if (oldWidget.width != widget.width) _width = widget.width;
+    if (oldWidget.height != widget.height) _height = widget.height;
+  }
+
+  void _place(BoxConstraints box) {
+    final h = _height >= 240 ? _height : box.maxHeight * 0.72;
+    final w = _width.clamp(280.0, box.maxWidth);
+    final left = _left < 0 ? box.maxWidth - w - 12 : _left;
+    if (_height != h || _width != w || _left != left) {
+      _height = h;
+      _width = w;
+      _left = left;
+    }
+  }
+
+  void _save() {
+    context.read<BillboardController>().setPoleDisplayFrame(
+          left: _left,
+          top: _top,
+          width: _width.round(),
+          height: _height.round(),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        _place(box);
+        final maxL = (box.maxWidth - _width).clamp(0.0, box.maxWidth);
+        final maxT = (box.maxHeight - _height).clamp(0.0, box.maxHeight);
+        _left = _left.clamp(0.0, maxL);
+        _top = _top.clamp(0.0, maxT);
+        return Stack(
+          children: [
+            Positioned(
+              left: _left,
+              top: _top,
+              width: _width,
+              height: _height,
+              child: Material(
+                elevation: 8,
+                clipBehavior: Clip.antiAlias,
+                color: Colors.transparent,
+                child: Stack(
+                  children: [
+                    CustomerOrderBoardPanel(width: _width),
+                    if (widget.editing)
+                      Positioned(
+                        left: 0,
+                        right: 28,
+                        top: 0,
+                        height: 28,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanUpdate: (d) {
+                            setState(() {
+                              _left = (_left + d.delta.dx).clamp(0.0, maxL);
+                              _top = (_top + d.delta.dy).clamp(0.0, maxT);
+                            });
+                          },
+                          onPanEnd: (_) => _save(),
+                          child: const ColoredBox(
+                            color: Color(0x66000000),
+                            child: Center(
+                              child: Text(
+                                'Drag',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (widget.editing)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        width: 28,
+                        height: 28,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanUpdate: (d) {
+                            setState(() {
+                              _width = (_width + d.delta.dx)
+                                  .clamp(280.0, box.maxWidth);
+                              _height = (_height + d.delta.dy)
+                                  .clamp(240.0, box.maxHeight);
+                            });
+                          },
+                          onPanEnd: (_) => _save(),
+                          child: const ColoredBox(
+                            color: Color(0xCC000000),
+                            child: Icon(
+                              Icons.open_in_full,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _EditChrome extends StatelessWidget {

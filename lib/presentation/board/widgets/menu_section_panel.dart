@@ -201,10 +201,16 @@ class _DescRow extends StatelessWidget {
 }
 
 class BillboardPicturePanel extends StatelessWidget {
-  const BillboardPicturePanel({super.key, required this.block, this.fit});
+  const BillboardPicturePanel({
+    super.key,
+    required this.block,
+    this.fit,
+    this.framed = false,
+  });
 
   final PictureBlock block;
   final BoxFit? fit;
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
@@ -246,6 +252,13 @@ class BillboardPicturePanel extends StatelessWidget {
     if (border != null) {
       child = DecoratedBox(
         decoration: BoxDecoration(border: border),
+        child: child,
+      );
+    } else if (framed) {
+      child = DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFE4E4E4), width: 2),
+        ),
         child: child,
       );
     }

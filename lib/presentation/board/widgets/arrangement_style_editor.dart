@@ -128,7 +128,25 @@ class ArrangementStyleEditor extends StatelessWidget {
           const SizedBox(height: 12),
           _CustomerDisplayCard(
             enabled: customerDisplay,
+            width: context.select((BillboardController c) => c.poleDisplayWidth),
             onChanged: onCustomerDisplayChanged,
+            onWidthChanged: (w) =>
+                context.read<BillboardController>().setPoleDisplayWidth(w),
+            scale: context.select((BillboardController c) => c.poleDisplayScale),
+            onScaleChanged: (v) =>
+                context.read<BillboardController>().setPoleDisplayScale(v),
+            darkMode: context.select(
+              (BillboardController c) => c.poleDisplayDarkMode,
+            ),
+            onDarkModeChanged: (v) => context
+                .read<BillboardController>()
+                .setPoleDisplayDarkMode(v),
+            floating: context.select(
+              (BillboardController c) => c.poleDisplayFloating,
+            ),
+            onFloatingChanged: (v) => context
+                .read<BillboardController>()
+                .setPoleDisplayFloating(v),
           ),
           const SizedBox(height: 12),
           _BoardSettingsCard(
@@ -662,14 +680,31 @@ class _RotationEasyCard extends StatelessWidget {
 class _CustomerDisplayCard extends StatelessWidget {
   const _CustomerDisplayCard({
     required this.enabled,
+    required this.width,
+    required this.darkMode,
+    required this.floating,
+    required this.scale,
     this.onChanged,
+    this.onWidthChanged,
+    this.onDarkModeChanged,
+    this.onFloatingChanged,
+    this.onScaleChanged,
   });
 
   final bool enabled;
+  final int width;
+  final bool darkMode;
+  final bool floating;
+  final int scale;
   final ValueChanged<bool>? onChanged;
+  final ValueChanged<int>? onWidthChanged;
+  final ValueChanged<bool>? onDarkModeChanged;
+  final ValueChanged<bool>? onFloatingChanged;
+  final ValueChanged<int>? onScaleChanged;
 
   @override
   Widget build(BuildContext context) {
+    final shown = width >= 280 ? width : 420;
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -719,7 +754,7 @@ class _CustomerDisplayCard extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Live order beside the menu board',
+                            'Pole_Display on this register',
                             style: TextStyle(
                               color: Colors.white54,
                               fontSize: 11,
@@ -745,8 +780,137 @@ class _CustomerDisplayCard extends StatelessWidget {
               ),
             ),
           ),
+            if (enabled) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Floating',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: floating,
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: CamaleonColors.green,
+                    onChanged: onFloatingChanged == null
+                        ? null
+                        : (v) {
+                            HapticFeedback.selectionClick();
+                            onFloatingChanged!(v);
+                          },
+                  ),
+                ],
+              ),
+            ],
           if (enabled) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Width',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onWidthChanged == null || shown <= 280
+                      ? null
+                      : () => onWidthChanged!(shown - 40),
+                  icon: const Icon(Icons.remove, color: Colors.white70, size: 18),
+                ),
+                Text(
+                  '$shown',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onWidthChanged == null || shown >= 900
+                      ? null
+                      : () => onWidthChanged!(shown + 40),
+                  icon: const Icon(Icons.add, color: Colors.white70, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Size',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onScaleChanged == null || scale <= 70
+                      ? null
+                      : () => onScaleChanged!(scale - 10),
+                  icon: const Icon(Icons.remove, color: Colors.white70, size: 18),
+                ),
+                Text(
+                  '$scale%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onScaleChanged == null || scale >= 200
+                      ? null
+                      : () => onScaleChanged!(scale + 10),
+                  icon: const Icon(Icons.add, color: Colors.white70, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Colors',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                _ModeChip(
+                  label: 'Light',
+                  selected: !darkMode,
+                  onTap: onDarkModeChanged == null
+                      ? null
+                      : () => onDarkModeChanged!(false),
+                ),
+                const SizedBox(width: 8),
+                _ModeChip(
+                  label: 'Dark',
+                  selected: darkMode,
+                  onTap: onDarkModeChanged == null
+                      ? null
+                      : () => onDarkModeChanged!(true),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Text(
               'Example orders',
               style: TextStyle(
@@ -759,6 +923,41 @@ class _CustomerDisplayCard extends StatelessWidget {
             const CustomerOrderSidebarPreview(),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  const _ModeChip({
+    required this.label,
+    required this.selected,
+    this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? Colors.white : Colors.white.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.black : Colors.white70,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -909,6 +1108,32 @@ class _BoardSettingsCard extends StatelessWidget {
           _ColorSwatches(
             value: boardMainBackColor,
             onChanged: onBoardBackgroundColor,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Frame on photos and videos',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              Switch.adaptive(
+                value: context.select(
+                  (BillboardController c) => c.mediaFrame,
+                ),
+                activeThumbColor: Colors.white,
+                activeTrackColor: CamaleonColors.green,
+                onChanged: (v) {
+                  HapticFeedback.selectionClick();
+                  context.read<BillboardController>().setMediaFrame(v);
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Row(

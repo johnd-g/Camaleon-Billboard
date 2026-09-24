@@ -50,6 +50,16 @@ abstract class BillboardRepository {
   /// POS `it_tregister.Regi_Name` values (pickable device labels).
   Future<List<String>> listRegisterNames();
 
+  /// Pole / customer-display columns for this station (`Regi_Code` or `Regi_Name`).
+  Future<({bool enabled, int width})?> loadPoleDisplay(String stationName);
+
+  /// Sets `Pole_Display` and `Pole_Display_Width` on this station's register row.
+  Future<void> savePoleDisplay({
+    required String stationName,
+    required bool enabled,
+    required int width,
+  });
+
   /// Live-order endpoint from `it_tregister` for the station currently in use
   /// (`liveorderonuse=1`, preferably also `liveorderport_active=1`).
   ///

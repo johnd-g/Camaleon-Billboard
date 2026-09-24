@@ -1,14 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/domain/entities/live_order.dart';
+import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
 
 final _liveMoney = NumberFormat.currency(symbol: '\$');
 
 String _fmtMoney(double v) => _liveMoney.format(v);
+
+/// Page behind the two white cards. Dark is the charcoal page.
+Color receiptSurface(bool dark) =>
+    dark ? const Color(0xFF1C1C1E) : const Color(0xFFF2F2F2);
+
+Color _receiptCard(bool dark) =>
+    dark ? const Color(0xFF2C2C2E) : const Color(0xFFFFFFFF);
+
+Color _receiptInk(bool dark) =>
+    dark ? const Color(0xFFFFFFFF) : const Color(0xFF010101);
+
+Color _receiptSeat(bool dark) =>
+    dark ? const Color(0xFFAEAEB2) : const Color(0xFF008400);
+
+Color _receiptDivider(bool dark) =>
+    dark ? const Color(0xFF636366) : const Color(0xFF707070);
+
+Color _receiptBorder(bool dark) =>
+    dark ? const Color(0xFF48484A) : const Color(0xFFE4E4E4);
+Color _modifierColor({
+  required bool dark,
+  required bool priced,
+  required bool selected,
+}) {
+  if (selected) {
+    return dark ? const Color(0xFFFAE3AD) : const Color(0xFF010101);
+  }
+  if (dark) {
+    return priced ? const Color(0xFF94B8E9) : const Color(0xFFE48689);
+  }
+  return priced ? const Color(0xFF0256B6) : const Color(0xFFAC1014);
+}
 
 String _fmtQty(double qty) {
   if (qty == qty.roundToDouble()) return '${qty.round()}';
@@ -103,6 +137,10 @@ class LiveOrderTicketView extends StatelessWidget {
     final c = context.watch<LiveOrderController>();
     final snap = c.snapshot;
 
+    if (customerDisplay) {
+      return _CustomerReceipt(controller: c, compact: compact);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -129,6 +167,496 @@ class LiveOrderTicketView extends StatelessWidget {
           showTotals: snap != null && snap.hasItems,
         ),
       ],
+    );
+  }
+}
+
+class _CustomerReceipt extends StatefulWidget {
+  const _CustomerReceipt({required this.controller, required this.compact});
+
+  final LiveOrderController controller;
+  final bool compact;
+
+  @override
+  State<_CustomerReceipt> createState() => _CustomerReceiptState();
+}
+
+class _CustomerReceiptState extends State<_CustomerReceipt> {
+  final Set<String> _selectedSeats = {};
+  final Set<String> _selectedLines = {};
+  final ScrollController _scroll = ScrollController();
+  String _orderTail = '';
+
+  static const _selectedBg = Color(0x6DF4BE40);
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _followNewOrder(LiveOrderSnapshot? snap) {
+    final next = _orderTailOf(snap);
+    if (next.isEmpty || next == _orderTail) return;
+    _orderTail = next;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      if (max <= 0) return;
+      _scroll.animateTo(
+        max,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  String _orderTailOf(LiveOrderSnapshot? snap) {
+    if (snap == null || !snap.hasItems) return '';
+    var count = 0;
+    var last = '';
+    for (final seat in snap.seats) {
+      for (final item in seat.items) {
+        count++;
+        last = '${seat.seat}|${item.itemDescription}|${item.qty}|${item.lineTotal}';
+        for (final mod in item.modifiers) {
+          count++;
+          last =
+              '${seat.seat}|${mod.itemDescription}|${mod.qty}|${mod.lineTotal}';
+        }
+      }
+    }
+    return '$count|$last';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snap = widget.controller.snapshot;
+    final dark = context.select(
+      (BillboardController c) => c.poleDisplayDarkMode,
+    );
+    final canvas = receiptSurface(dark);
+    final card = _receiptCard(dark);
+    final ink = _receiptInk(dark);
+    final seatColor = _receiptSeat(dark);
+    final scale =
+        context.select((BillboardController c) => c.poleDisplayScale) / 100;
+    final seats =
+        snap?.seats.where((s) => s.items.isNotEmpty).toList() ?? const [];
+    final compact = widget.compact;
+    final pad = (compact ? 14.0 : 22.0) * scale;
+    final font = (compact ? 14.0 : 15.0) * scale;
+    final table = snap?.tableName.trim() ?? '';
+    _followNewOrder(snap);
+
+    final gap = 5.0 * scale;
+        final topGap = 6.0 * scale;
+
+    return ColoredBox(
+      color: canvas,
+      child: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(gap, gap, gap, gap * 0.6),
+              child: _ReceiptCard(
+                fill: card,
+                border: _receiptBorder(dark),
+                child: seats.isEmpty
+                    ? const SizedBox.expand()
+                    : RawScrollbar(
+                        controller: _scroll,
+                        thumbVisibility: true,
+                        thickness: 6,
+                        radius: const Radius.circular(8),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        thumbColor: dark
+                            ? Colors.white.withValues(alpha: 0.55)
+                            : Colors.black.withValues(alpha: 0.35),
+                        child: ListView(
+                          controller: _scroll,
+                          padding: EdgeInsets.fromLTRB(0, 8 * scale, 10, 8 * scale),
+                        children: [
+                          for (final seat in seats) ...[
+                            _seatBar(
+                              seat: seat,
+                              table: table,
+                              pad: pad,
+                              font: font,
+                              fill: card,
+                              height: (compact ? 36.0 : 43.0) * scale,
+                              seatColor: seatColor,
+                              ink: ink,
+                            ),
+                            Padding(
+                              padding: EdgeInsets.only(left: pad, right: pad),
+                              child: DecoratedBox(
+                                decoration: ShapeDecoration(
+                                  shape: RoundedRectangleBorder(
+                                    side: BorderSide(
+                                      width: 1,
+                                      strokeAlign: BorderSide.strokeAlignCenter,
+                                      color: _receiptDivider(dark),
+                                    ),
+                                  ),
+                                ),
+                                child: const SizedBox(
+                                  width: double.infinity,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                            for (var i = 0; i < seat.items.length; i++) ...[
+                              _line(
+                                keyId: '${seat.seat}:$i',
+                                item: seat.items[i],
+                                isModifier: false,
+                                pad: pad,
+                                font: font,
+                                fill: card,
+                                vPad: 5 * scale,
+                                ink: ink,
+                                dark: dark,
+                              ),
+                              for (var m = 0;
+                                  m < seat.items[i].modifiers.length;
+                                  m++)
+                                _line(
+                                  keyId: '${seat.seat}:$i:$m',
+                                  item: seat.items[i].modifiers[m],
+                                  isModifier: true,
+                                  pad: pad,
+                                  font: font,
+                                  fill: card,
+                                  vPad: 5 * scale,
+                                  ink: ink,
+                                  dark: dark,
+                                ),
+                            ],
+                          ],
+                        ],
+                      ),
+                      ),
+              ),
+            ),
+          ),
+          if (snap != null && snap.hasItems)
+            Padding(
+              padding: EdgeInsets.fromLTRB(gap, topGap, gap, gap),
+              child: _ReceiptTotals(
+                totals: snap.totals,
+                compact: compact,
+                scale: scale,
+                fill: card,
+                ink: ink,
+                border: _receiptBorder(dark),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _seatBar({
+    required LiveOrderSeat seat,
+    required String table,
+    required double pad,
+    required double font,
+    required Color fill,
+    required double height,
+    required Color seatColor,
+    required Color ink,
+  }) {
+    final selected = _selectedSeats.contains(seat.seat);
+    return GestureDetector(
+      onTap: () => setState(() {
+        if (!_selectedSeats.add(seat.seat)) _selectedSeats.remove(seat.seat);
+      }),
+      child: Container(
+        height: height,
+        color: selected ? _selectedBg : fill,
+        padding: EdgeInsets.symmetric(horizontal: pad),
+        child: Row(
+          children: [
+            if (table.isNotEmpty) ...[
+              Text(
+                'Table: $table',
+                style: GoogleFonts.inter(
+                  color: ink,
+                  fontSize: font,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              seat.seat.isEmpty ? 'Seat' : 'Seat: ${seat.seat}',
+              style: GoogleFonts.inter(
+                color: seatColor,
+                fontSize: font,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _line({
+    required String keyId,
+    required LiveOrderItem item,
+    required bool isModifier,
+    required double pad,
+    required double font,
+    required Color fill,
+    required double vPad,
+    required Color ink,
+    required bool dark,
+  }) {
+    final selected = _selectedLines.contains(keyId);
+    final priced = item.lineTotal != 0;
+    final Color textColor;
+    if (isModifier) {
+      textColor = _modifierColor(dark: dark, priced: priced, selected: selected);
+    } else {
+      textColor = ink;
+    }
+    final qty = item.qty == 0 ? '' : _fmtQty(item.qty);
+    final name = item.itemDescription;
+
+    return GestureDetector(
+      onTap: () => setState(() {
+        if (!_selectedLines.add(keyId)) _selectedLines.remove(keyId);
+      }),
+      child: Container(
+        color: selected ? _selectedBg : fill,
+        padding: EdgeInsets.fromLTRB(pad, vPad, pad, vPad),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: isModifier
+                  ? Text(
+                      qty.isEmpty ? '* $name' : '*$qty* $name',
+                      style: GoogleFonts.inter(
+                        letterSpacing: 3.05,
+                        fontSize: font,
+                        color: textColor,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    )
+                  : Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: qty.isEmpty ? '' : '$qty ',
+                            style: GoogleFonts.inter(
+                              fontSize: font,
+                              letterSpacing: 0.30,
+                              color: textColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          TextSpan(
+                            text: name,
+                            style: GoogleFonts.inter(
+                              fontSize: font,
+                              letterSpacing: 0.30,
+                              color: textColor,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+            if (priced)
+              Padding(
+                padding: EdgeInsets.only(left: 12 * (font / 15)),
+                child: Text(
+                  _fmtMoney(item.lineTotal),
+                  textAlign: TextAlign.end,
+                  style: GoogleFonts.inter(
+                    fontSize: font,
+                    letterSpacing: 0.30,
+                    color: textColor,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptCard extends StatelessWidget {
+  const _ReceiptCard({
+    required this.child,
+    required this.fill,
+    required this.border,
+  });
+
+  final Widget child;
+  final Color fill;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _ReceiptTotals extends StatelessWidget {
+  const _ReceiptTotals({
+    required this.totals,
+    required this.compact,
+    this.scale = 1,
+    required this.fill,
+    required this.ink,
+    required this.border,
+  });
+
+  final LiveOrderTotals totals;
+  final bool compact;
+  final double scale;
+  final Color fill;
+  final Color ink;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = totals;
+    final tipPct = t.tipPercent == t.tipPercent.roundToDouble()
+        ? '${t.tipPercent.round()}'
+        : t.tipPercent.toStringAsFixed(1);
+    final fitted = (compact ? 0.9 : 1.0) * scale;
+    final head = 15.0 * fitted;
+    final body = 12.0 * fitted;
+
+    TextStyle labelStyle({required double size, required FontWeight weight}) {
+      return GoogleFonts.inter(
+        color: ink,
+        fontSize: size,
+        fontWeight: weight,
+      );
+    }
+
+    Widget label(String text, {bool head = false}) {
+      return Text(
+        text,
+        style: labelStyle(
+          size: head ? 15 * fitted : body,
+          weight: head ? FontWeight.w700 : FontWeight.w400,
+        ),
+      );
+    }
+
+    Widget amount(String text, {bool head = false}) {
+      return Text(
+        text,
+        style: labelStyle(
+          size: head ? 15 * fitted : body,
+          weight: FontWeight.w700,
+        ),
+      );
+    }
+
+    final showTip = t.tip > 0 || t.tipPercent > 0;
+    final showRounding = t.showCashRounding || t.cashRounding != 0;
+
+    return _ReceiptCard(
+      fill: fill,
+      border: border,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    label('Sub Total', head: true),
+                    label('Tax'),
+                    if (t.delivery > 0) label('Delivery'),
+                    if (showTip) label('Tip($tipPct%):'),
+                    if (showRounding) label('Cash Rounding'),
+                  ],
+                ),
+                const Spacer(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    amount(_fmtMoney(t.subtotal), head: true),
+                    amount(_fmtMoney(t.tax)),
+                    if (t.delivery > 0) amount(_fmtMoney(t.delivery)),
+                    if (showTip) amount(_fmtMoney(t.tip)),
+                    if (showRounding) amount(_fmtMoney(t.cashRounding)),
+                  ],
+                ),
+              ],
+            ),
+            Divider(height: 14, thickness: 1, color: ink.withValues(alpha: 0.85)),
+            Row(
+              children: [
+                Text(
+                  'Total',
+                  style: GoogleFonts.inter(
+                    color: ink,
+                    fontSize: head + 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _fmtMoney(t.total),
+                  style: GoogleFonts.inter(
+                    color: ink,
+                    fontSize: head + 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            if (t.cashOption != null)
+              Row(
+                children: [
+                  Text(
+                    'Cash',
+                    style: GoogleFonts.inter(
+                      color: ink,
+                      fontSize: head + 1,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _fmtMoney(t.cashOption!),
+                    style: GoogleFonts.inter(
+                      color: ink,
+                      fontSize: head + 1,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -193,7 +721,9 @@ class _Header extends StatelessWidget {
             color: CamaleonColors.green,
             padding: EdgeInsets.symmetric(
               horizontal: customerDisplay ? 20 : (compact ? 12 : 16),
-              vertical: customerDisplay ? 18 : (compact ? 10 : 14),
+              vertical: customerDisplay
+                  ? (compact ? 8 : 18)
+                  : (compact ? 10 : 14),
             ),
             child: Column(
               children: [
@@ -454,10 +984,7 @@ class _ItemRow extends StatelessWidget {
     final priceSize = large ? 22.0 : (compact ? 13.0 : 16.0);
     final showPrice = !isChild || item.lineTotal != 0;
     final pricedMod = isChild && item.lineTotal != 0;
-    // Free mods: POS-like red/pink. Priced mods: blue.
-    final modColor = pricedMod
-        ? const Color(0xFF64B5F6)
-        : const Color(0xFFFF8A80);
+    final modColor = _modifierColor(dark: true, priced: pricedMod, selected: false);
 
     // POS kitchen-style: forced mods often already include "** "
     final displayName = item.itemDescription;
