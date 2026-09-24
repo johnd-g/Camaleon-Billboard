@@ -33,7 +33,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
   bool _alpha = false;
   bool _scanningQr = false;
   bool _showManual = false;
-  bool _showLiveOrder = false;
   String? _status;
   String? _liveStatus;
   String? _templateComp;
@@ -397,24 +396,20 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       slivers: [
-                        SliverFillRemaining(
+                        if (_showManual)
+                          SliverToBoxAdapter(
+                            child: _manualView(
+                              c: c,
+                              busy: busy,
+                              ink: ink,
+                              muted: muted,
+                              scheme: scheme,
+                            ),
+                          )
+                        else
+                          SliverFillRemaining(
                           hasScrollBody: false,
-                          child: _showLiveOrder
-                              ? _liveOrderView(
-                                  busy: busy,
-                                  ink: ink,
-                                  muted: muted,
-                                  scheme: scheme,
-                                )
-                              : _showManual
-                              ? _manualView(
-                                  c: c,
-                                  busy: busy,
-                                  ink: ink,
-                                  muted: muted,
-                                  scheme: scheme,
-                                )
-                              : _homeView(
+                          child: _homeView(
                                   c: c,
                                   busy: busy,
                                   compact: compact,
@@ -708,14 +703,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
           ),
         ],
         const Spacer(),
-        if (!keyboardOpen) ...[
+        if (!keyboardOpen)
           TextButton(
             onPressed: busy
                 ? null
                 : () {
                     setState(() {
-                      _showLiveOrder = true;
-                      _showManual = false;
+                      _showManual = true;
                       _liveStatus = null;
                     });
                     unawaited(
@@ -725,16 +719,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       ),
                     );
                   },
-            child: Text(
-              'Live order',
-              style: TextStyle(color: CamaleonColors.green),
-            ),
+            child: Text('MySQL connection', style: TextStyle(color: muted)),
           ),
-          TextButton(
-            onPressed: busy ? null : () => setState(() => _showManual = true),
-            child: Text('Manual settings', style: TextStyle(color: muted)),
-          ),
-        ],
       ],
     );
   }
@@ -930,7 +916,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
             ),
           ),
         ),
-        const Spacer(),
+        const SizedBox(height: 16),
+        _liveOrderSection(
+          busy: busy,
+          ink: ink,
+          muted: muted,
+          scheme: scheme,
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -971,7 +964,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     });
   }
 
-  Widget _liveOrderView({
+  Widget _liveOrderSection({
     required bool busy,
     required Color ink,
     required Color muted,
@@ -988,39 +981,21 @@ class _ConnectionPageState extends State<ConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            IconButton(
-              tooltip: 'Back',
-              onPressed: busy
-                  ? null
-                  : () => setState(() => _showLiveOrder = false),
-              icon: Icon(Icons.arrow_back_rounded, color: muted),
-            ),
-            Expanded(
-              child: Text(
-                'Live order',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: ink,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            const SizedBox(width: 48),
-          ],
+        Text(
+          'Live order',
+          style: TextStyle(
+            color: ink,
+            fontWeight: FontWeight.w700,
+            fontSize: 15,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
-          'Billboard only reads liveorderserver / liveorderport from the '
-          'it_tregister row with liveorderonuse=1. The POS HTTP server runs '
-          'on that caja only while Order Entry landscape is open and '
-          'liveorderport_active=1 (Iniciar). Not editable here.',
-          textAlign: TextAlign.center,
+          'Read from it_tregister after MySQL connects. Needs '
+          'liveorderonuse=1 and liveorderport_active=1.',
           style: TextStyle(color: muted, fontSize: 12, height: 1.35),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1148,7 +1123,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             ),
           ),
         ),
-        const Spacer(),
+        const SizedBox(height: 8),
         Text(
           'Read-only pointer · POS owns the server (onuse + Iniciar)',
           textAlign: TextAlign.center,
