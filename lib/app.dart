@@ -25,7 +25,7 @@ class CamaleonBillboardApp extends StatelessWidget {
           update: (_, billboard, live) {
             final c = live ?? LiveOrderController();
             c.attachRegisterLoader(
-              billboard.isMysqlConnected
+              billboard.connection.isComplete
                   ? billboard.findLiveOrderEndpointInUse
                   : null,
             );

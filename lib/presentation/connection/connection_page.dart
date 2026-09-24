@@ -712,11 +712,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       _showManual = true;
                       _liveStatus = null;
                     });
-                    unawaited(
-                      context.read<LiveOrderController>().syncFromRegister(
-                        persist: true,
-                        restartPoll: true,
-                      ),
+                    context.read<BillboardController>().useConnection(
+                      _readConfig(),
                     );
                   },
             child: Text('MySQL connection', style: TextStyle(color: muted)),
@@ -1315,6 +1312,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                 : (v) {
                     if (v == null) return;
                     setState(() => _db.text = v);
+                    context.read<BillboardController>().useConnection(
+                      _readConfig(),
+                    );
                   },
           ),
         ),

@@ -125,10 +125,31 @@ class BillboardController extends ChangeNotifier {
 
   bool get isMysqlConnected => _client.isConnected;
 
+  /// Keeps the form's MySQL settings (including the selected database) so
+  /// Live order can query `it_tregister` on that same connection.
+  void useConnection(DbConnectionConfig cfg) {
+    connection = cfg;
+    notifyListeners();
+  }
+
   /// Reads `it_tregister` for the station with `liveorderonuse=1`.
+  ///
+  /// Uses the open board connection, or opens [connection] when a database
+  /// is already selected.
   Future<LiveOrderRegisterEndpoint?> findLiveOrderEndpointInUse() async {
-    if (!_client.isConnected) return null;
     try {
+      if (!connection.isComplete) return null;
+      final open = _client.config;
+      final same =
+          _client.isConnected &&
+          open != null &&
+          open.host == connection.host &&
+          open.port == connection.port &&
+          open.database == connection.database &&
+          open.user == connection.user;
+      if (!same) {
+        await _billboardRepo.connect(connection);
+      }
       return await _billboardRepo.findLiveOrderEndpointInUse();
     } catch (e) {
       if (kDebugMode) debugPrint('findLiveOrderEndpointInUse: $e');
