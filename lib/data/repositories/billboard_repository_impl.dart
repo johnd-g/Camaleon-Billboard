@@ -460,13 +460,14 @@ ORDER BY ds.DateOut ASC
 
   @override
   Future<LiveOrderRegisterEndpoint?> findLiveOrderEndpointInUse() async {
-    // Billboard follows the lock holder. POS only listens when that same row
-    // also has liveorderport_active=1 (and reg_deviceid matches that machine).
+    // Endpoint = liveorderserver + liveorderport from the only row that is
+    // both locked (onuse) and started (Iniciar / port_active).
     const sql =
         'SELECT liveorderserver, liveorderport, liveorderport_active, '
         'liveorderonuse, Regi_Name, Regi_Code '
         'FROM it_tregister '
         'WHERE liveorderonuse = 1 '
+        'AND liveorderport_active = 1 '
         'ORDER BY Regi_Name ASC '
         'LIMIT 1';
 
@@ -479,7 +480,7 @@ ORDER BY ds.DateOut ASC
       return LiveOrderRegisterEndpoint(
         server: server,
         port: port <= 0 ? 8777 : port,
-        active: Utils.asFlag(row['liveorderport_active']),
+        active: true,
         onUse: true,
         regiName: Utils.str(row['Regi_Name']),
         regiCode: Utils.str(row['Regi_Code']),

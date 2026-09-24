@@ -112,8 +112,8 @@ class LiveOrderController extends ChangeNotifier {
       if (row == null) {
         registerLabel = null;
         statusMessage =
-            'Waiting for Order Entry landscape '
-            '(it_tregister.liveorderonuse=1)…';
+            'Waiting for it_tregister with liveorderonuse=1 AND '
+            'liveorderport_active=1 (Iniciar + Order Entry landscape)…';
         if (phase != LiveOrderPhase.live && phase != LiveOrderPhase.empty) {
           phase = LiveOrderPhase.waiting;
         }
@@ -123,17 +123,6 @@ class LiveOrderController extends ChangeNotifier {
 
       final label = row.regiName.isNotEmpty ? row.regiName : row.regiCode;
       registerLabel = label.isEmpty ? null : label;
-
-      if (!row.active) {
-        statusMessage = label.isEmpty
-            ? 'Register on use, but liveorderport_active=0 (Iniciar off) — '
-                'POS will not open the port.'
-            : '$label on use, but Iniciar off (liveorderport_active=0) — '
-                'POS will not open the port.';
-        phase = LiveOrderPhase.waiting;
-        notifyListeners();
-        return false;
-      }
 
       if (row.server.trim().isEmpty) {
         statusMessage = label.isEmpty
