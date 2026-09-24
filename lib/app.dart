@@ -20,8 +20,17 @@ class CamaleonBillboardApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => BillboardController()..bootstrap(),
         ),
-        ChangeNotifierProvider(
+        ChangeNotifierProxyProvider<BillboardController, LiveOrderController>(
           create: (_) => LiveOrderController()..bootstrap(),
+          update: (_, billboard, live) {
+            final c = live ?? LiveOrderController();
+            c.attachRegisterLoader(
+              billboard.isMysqlConnected
+                  ? billboard.findLiveOrderEndpointInUse
+                  : null,
+            );
+            return c;
+          },
         ),
       ],
       child: MaterialApp(

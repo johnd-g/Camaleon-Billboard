@@ -10,7 +10,12 @@ import 'package:camaleon_billboard/domain/repositories/connection_config_reposit
 
 enum LiveOrderPhase { idle, connecting, live, empty, waiting, error }
 
-/// Polls the POS Live order HTTP service independently of MySQL boards.
+typedef LiveOrderRegisterLoader = Future<LiveOrderRegisterEndpoint?> Function();
+
+/// Polls the POS Live order HTTP service.
+///
+/// Host/port/enable always come from `it_tregister` (`liveorderonuse=1`).
+/// No manual IP configuration.
 class LiveOrderController extends ChangeNotifier {
   LiveOrderController({
     ConnectionConfigRepository? connectionRepo,
@@ -21,6 +26,8 @@ class LiveOrderController extends ChangeNotifier {
   final ConnectionConfigRepository _connectionRepo;
   final LiveOrderClient _client;
 
+  LiveOrderRegisterLoader? _registerLoader;
+
   LiveOrderConfig config = LiveOrderConfig.empty;
   LiveOrderPhase phase = LiveOrderPhase.idle;
   LiveOrderSnapshot? snapshot;
@@ -30,42 +37,142 @@ class LiveOrderController extends ChangeNotifier {
   bool validating = false;
   bool actionBusy = false;
 
+  /// Last register label applied from MySQL (`Regi_Name`).
+  String? registerLabel;
+
   Timer? _pollTimer;
+  Timer? _registerSyncTimer;
   bool _pollInFlight = false;
+  bool _registerSyncInFlight = false;
   int _consecutiveFailures = 0;
   static const _keepLastGoodFailures = 3;
+  static const _registerSyncEvery = Duration(seconds: 2);
+  static const _defaultPollMs = 500;
+
+  /// Wire MySQL lookup from [BillboardController] (ProxyProvider).
+  void attachRegisterLoader(LiveOrderRegisterLoader? loader) {
+    if (_registerLoader == loader) return;
+    _registerLoader = loader;
+    if (loader == null) {
+      _stopRegisterSync();
+      statusMessage = 'Connect MySQL to read it_tregister.';
+      phase = LiveOrderPhase.waiting;
+      notifyListeners();
+      return;
+    }
+    _startRegisterSync();
+    unawaited(syncFromRegister(persist: true, restartPoll: true));
+  }
 
   Future<void> bootstrap() async {
     bootstrapping = true;
     notifyListeners();
     try {
-      config = (await _connectionRepo.loadLiveOrderConfig()).normalized();
+      // Cache last known endpoint; real source of truth is it_tregister.
+      final cached = (await _connectionRepo.loadLiveOrderConfig()).normalized();
+      config = cached.copyWith(pollMs: _defaultPollMs);
       if (config.isReady) {
         await startPolling(validateHealth: true);
       } else {
-        phase = LiveOrderPhase.idle;
+        phase = LiveOrderPhase.waiting;
+        statusMessage =
+            'Waiting for it_tregister (liveorderonuse=1)…';
       }
+      _startRegisterSync();
+      unawaited(syncFromRegister(persist: true, restartPoll: true));
     } catch (e, st) {
       if (kDebugMode) debugPrint('LiveOrder bootstrap failed: $e\n$st');
-      phase = LiveOrderPhase.idle;
+      phase = LiveOrderPhase.waiting;
+      statusMessage = 'Waiting for it_tregister…';
     } finally {
       bootstrapping = false;
       notifyListeners();
     }
   }
 
-  Future<void> saveConfig(LiveOrderConfig next) async {
-    config = next.normalized();
-    await _connectionRepo.saveLiveOrderConfig(config);
-    notifyListeners();
-
-    if (config.isReady) {
-      await startPolling(validateHealth: true);
-    } else {
-      stopPolling();
-      phase = LiveOrderPhase.idle;
-      statusMessage = null;
+  /// Pull host/port from `it_tregister` where `liveorderonuse=1`.
+  Future<bool> syncFromRegister({
+    bool persist = true,
+    bool restartPoll = false,
+  }) async {
+    final loader = _registerLoader;
+    if (loader == null) {
+      statusMessage = 'Connect MySQL to read it_tregister.';
+      if (phase != LiveOrderPhase.live && phase != LiveOrderPhase.empty) {
+        phase = LiveOrderPhase.waiting;
+      }
       notifyListeners();
+      return false;
+    }
+    if (_registerSyncInFlight) return false;
+    _registerSyncInFlight = true;
+
+    try {
+      final row = await loader();
+      if (row == null) {
+        registerLabel = null;
+        statusMessage =
+            'Waiting for Order Entry landscape '
+            '(it_tregister.liveorderonuse=1)…';
+        if (phase != LiveOrderPhase.live && phase != LiveOrderPhase.empty) {
+          phase = LiveOrderPhase.waiting;
+        }
+        notifyListeners();
+        return false;
+      }
+
+      final label = row.regiName.isNotEmpty ? row.regiName : row.regiCode;
+      registerLabel = label.isEmpty ? null : label;
+
+      if (!row.active) {
+        statusMessage = label.isEmpty
+            ? 'Register on use, but liveorderport_active=0 (Iniciar off) — '
+                'POS will not open the port.'
+            : '$label on use, but Iniciar off (liveorderport_active=0) — '
+                'POS will not open the port.';
+        phase = LiveOrderPhase.waiting;
+        notifyListeners();
+        return false;
+      }
+
+      if (row.server.trim().isEmpty) {
+        statusMessage = label.isEmpty
+            ? 'Register on use has empty liveorderserver.'
+            : '$label on use, but liveorderserver is empty.';
+        phase = LiveOrderPhase.waiting;
+        notifyListeners();
+        return false;
+      }
+
+      final next = LiveOrderConfig(
+        host: row.server.trim(),
+        port: row.port <= 0 ? 8777 : row.port,
+        pollMs: _defaultPollMs,
+        enabled: true,
+      ).normalized();
+
+      final hostChanged =
+          next.host != config.host || next.port != config.port;
+      final wasReady = config.isReady;
+
+      config = next;
+      if (persist) {
+        await _connectionRepo.saveLiveOrderConfig(config);
+      }
+      statusMessage = label.isEmpty
+          ? 'Using ${config.baseUrl} from it_tregister'
+          : 'Using $label · ${config.baseUrl}';
+      notifyListeners();
+
+      if (restartPoll || hostChanged || !wasReady) {
+        await startPolling(validateHealth: hostChanged || !wasReady);
+      }
+      return true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('LiveOrder syncFromRegister failed: $e');
+      return false;
+    } finally {
+      _registerSyncInFlight = false;
     }
   }
 
@@ -75,8 +182,9 @@ class LiveOrderController extends ChangeNotifier {
     _consecutiveFailures = 0;
 
     if (!config.isReady) {
-      phase = LiveOrderPhase.idle;
-      statusMessage = 'Enter the POS IP and enable Live order.';
+      phase = LiveOrderPhase.waiting;
+      statusMessage ??=
+          'Waiting for it_tregister (liveorderonuse=1)…';
       notifyListeners();
       return false;
     }
@@ -98,7 +206,6 @@ class LiveOrderController extends ChangeNotifier {
         if (kDebugMode) debugPrint('LiveOrder health failed: $e');
         phase = LiveOrderPhase.waiting;
         statusMessage = 'Waiting for POS at $target…';
-        // Still start polling — POS may come online later.
       } finally {
         validating = false;
         notifyListeners();
@@ -107,11 +214,11 @@ class LiveOrderController extends ChangeNotifier {
       phase = snapshot == null
           ? LiveOrderPhase.connecting
           : (snapshot!.hasItems ? LiveOrderPhase.live : LiveOrderPhase.empty);
-      statusMessage = null;
       notifyListeners();
     }
 
     _scheduleNextPoll(immediate: true);
+    _startRegisterSync();
     return true;
   }
 
@@ -122,12 +229,25 @@ class LiveOrderController extends ChangeNotifier {
     _consecutiveFailures = 0;
   }
 
+  void _startRegisterSync() {
+    _registerSyncTimer?.cancel();
+    if (_registerLoader == null) return;
+    _registerSyncTimer = Timer.periodic(
+      _registerSyncEvery,
+      (_) => unawaited(syncFromRegister(persist: true, restartPoll: false)),
+    );
+  }
+
+  void _stopRegisterSync() {
+    _registerSyncTimer?.cancel();
+    _registerSyncTimer = null;
+  }
+
   void _scheduleNextPoll({bool immediate = false}) {
     _pollTimer?.cancel();
     if (!config.isReady) return;
 
     final base = config.pollMs.clamp(200, 10000);
-    // Back off while offline so we don't stack 3s timeouts every 500ms.
     final delayMs = _consecutiveFailures == 0
         ? base
         : (base * (1 << _consecutiveFailures.clamp(0, 3))).clamp(base, 5000);
@@ -147,7 +267,9 @@ class LiveOrderController extends ChangeNotifier {
       snapshot = next;
       lastUpdatedAt = next.updatedAt;
       phase = next.hasItems ? LiveOrderPhase.live : LiveOrderPhase.empty;
-      statusMessage = null;
+      statusMessage = registerLabel == null
+          ? null
+          : 'Using $registerLabel · $target';
       if (changed) notifyListeners();
     } catch (e) {
       _consecutiveFailures++;
@@ -182,10 +304,8 @@ class LiveOrderController extends ChangeNotifier {
     }
   }
 
-  /// Force a one-shot refresh (e.g. after POS Test).
   Future<void> refreshNow() => _pollOnce();
 
-  /// Customer Display side panel: only while there is an active non-empty ticket.
   bool get showCustomerTicket {
     if (!config.isReady) return false;
     final s = snapshot;
@@ -202,10 +322,9 @@ class LiveOrderController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// POST /test — ask POS to publish a $1 test ticket.
   Future<bool> publishTest() async {
     if (config.host.trim().isEmpty) {
-      statusMessage = 'Enter the POS IP first.';
+      statusMessage = 'No POS IP yet — waiting for liveorderonuse=1.';
       notifyListeners();
       return false;
     }
@@ -213,17 +332,12 @@ class LiveOrderController extends ChangeNotifier {
     statusMessage = 'Sending test order…';
     notifyListeners();
     try {
-      final cfg = config.copyWith(enabled: true).normalized();
-      if (!config.enabled ||
-          config.host != cfg.host ||
-          config.port != cfg.port) {
-        config = cfg;
+      if (!config.isReady) {
+        config = config.copyWith(enabled: true).normalized();
         await _connectionRepo.saveLiveOrderConfig(config);
-        if (config.isReady && _pollTimer == null) {
-          await startPolling(validateHealth: false);
-        }
+        await startPolling(validateHealth: false);
       }
-      final next = await _client.publishTest(cfg);
+      final next = await _client.publishTest(config);
       _applySnapshot(next, status: 'Test order published.');
       return true;
     } catch (e) {
@@ -237,10 +351,9 @@ class LiveOrderController extends ChangeNotifier {
     }
   }
 
-  /// POST /clear — ask POS to clear the live ticket.
   Future<bool> clearOrder() async {
     if (config.host.trim().isEmpty) {
-      statusMessage = 'Enter the POS IP first.';
+      statusMessage = 'No POS IP yet — waiting for liveorderonuse=1.';
       notifyListeners();
       return false;
     }
@@ -253,7 +366,6 @@ class LiveOrderController extends ChangeNotifier {
       try {
         next = await _client.clearLiveOrder(cfg);
       } on LiveOrderHttpException catch (e) {
-        // Fallback alias if older POS only exposes DELETE.
         if (e.statusCode == 404) {
           next = await _client.deleteLiveOrder(cfg);
         } else {
@@ -276,6 +388,7 @@ class LiveOrderController extends ChangeNotifier {
   @override
   void dispose() {
     stopPolling();
+    _stopRegisterSync();
     _client.close();
     super.dispose();
   }

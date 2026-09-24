@@ -453,6 +453,11 @@ class _ItemRow extends StatelessWidget {
     final qtySize = large ? 22.0 : (compact ? 13.0 : 16.0);
     final priceSize = large ? 22.0 : (compact ? 13.0 : 16.0);
     final showPrice = !isChild || item.lineTotal != 0;
+    final pricedMod = isChild && item.lineTotal != 0;
+    // Free mods: POS-like red/pink. Priced mods: blue.
+    final modColor = pricedMod
+        ? const Color(0xFF64B5F6)
+        : const Color(0xFFFF8A80);
 
     // POS kitchen-style: forced mods often already include "** "
     final displayName = item.itemDescription;
@@ -481,9 +486,7 @@ class _ItemRow extends StatelessWidget {
             child: Text(
               displayName,
               style: TextStyle(
-                color: isChild
-                    ? const Color(0xFFFF8A80) // POS-like red/pink for mods
-                    : Colors.white,
+                color: isChild ? modColor : Colors.white,
                 fontSize: nameSize,
                 fontStyle: isChild ? FontStyle.italic : FontStyle.normal,
                 height: 1.25,
@@ -495,7 +498,9 @@ class _ItemRow extends StatelessWidget {
             Text(
               _fmtMoney(item.lineTotal),
               style: TextStyle(
-                color: isChild ? Colors.white54 : Colors.white70,
+                color: pricedMod
+                    ? modColor
+                    : (isChild ? Colors.white54 : Colors.white70),
                 fontSize: priceSize,
                 fontWeight: FontWeight.w700,
               ),
@@ -636,6 +641,4 @@ class _CenteredMessage extends StatelessWidget {
       ),
     );
   }
-}
-
 }

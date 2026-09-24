@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -9,7 +10,6 @@ import 'package:provider/provider.dart';
 import 'package:camaleon_billboard/core/db/qr_image_scanner.dart';
 import 'package:camaleon_billboard/core/theme/camaleon_theme.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
-import 'package:camaleon_billboard/domain/entities/live_order_config.dart';
 import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_page.dart';
@@ -29,15 +29,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
   late final TextEditingController _db;
   late final TextEditingController _comp;
   late final TextEditingController _refresh;
-  late final TextEditingController _liveHost;
-  late final TextEditingController _livePort;
-  late final TextEditingController _livePoll;
   final ImagePicker _picker = ImagePicker();
   bool _alpha = false;
   bool _scanningQr = false;
   bool _showManual = false;
   bool _showLiveOrder = false;
-  bool _liveEnabled = false;
   String? _status;
   String? _liveStatus;
   String? _templateComp;
@@ -65,12 +61,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
     _refresh = TextEditingController(text: '${c.refreshSeconds}');
     _alpha = c.sortAlphabetical;
     _templateComp = c.templateCompName;
-
-    final live = context.read<LiveOrderController>();
-    _liveHost = TextEditingController(text: live.config.host);
-    _livePort = TextEditingController(text: '${live.config.port}');
-    _livePoll = TextEditingController(text: '${live.config.pollMs}');
-    _liveEnabled = live.config.enabled;
   }
 
   /// On Android, Device is always the device name.
@@ -94,9 +84,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
     _db.dispose();
     _comp.dispose();
     _refresh.dispose();
-    _liveHost.dispose();
-    _livePort.dispose();
-    _livePoll.dispose();
     super.dispose();
   }
 
@@ -726,13 +713,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
             onPressed: busy
                 ? null
                 : () {
-                    _syncLiveFromController(
-                      context.read<LiveOrderController>(),
-                    );
                     setState(() {
                       _showLiveOrder = true;
                       _showManual = false;
+                      _liveStatus = null;
                     });
+                    unawaited(
+                      context.read<LiveOrderController>().syncFromRegister(
+                        persist: true,
+                        restartPoll: true,
+                      ),
+                    );
                   },
             child: Text(
               'Live order',
@@ -944,76 +935,21 @@ class _ConnectionPageState extends State<ConnectionPage> {
     );
   }
 
-  LiveOrderConfig _readLiveConfig() {
-    return LiveOrderConfig(
-      host: _liveHost.text.trim(),
-      port: int.tryParse(_livePort.text.trim()) ?? 8777,
-      pollMs: int.tryParse(_livePoll.text.trim()) ?? 500,
-      enabled: _liveEnabled,
-    );
-  }
-
-  Future<void> _saveLiveOrder() async {
-    final live = context.read<LiveOrderController>();
-    final cfg = _readLiveConfig();
-    setState(
-      () => _liveStatus = cfg.enabled
-          ? 'Saving and checking ${cfg.baseUrl}…'
-          : 'Saving…',
-    );
-    await live.saveConfig(cfg);
-    if (!mounted) return;
-    setState(() {
-      _liveHost.text = live.config.host;
-      _livePort.text = '${live.config.port}';
-      _livePoll.text = '${live.config.pollMs}';
-      _liveEnabled = live.config.enabled;
-      if (!live.config.enabled) {
-        _liveStatus = 'Live order off.';
-      } else if (live.phase == LiveOrderPhase.waiting) {
-        _liveStatus = 'Saved · Waiting for POS…';
-      } else if (live.phase == LiveOrderPhase.live ||
-          live.phase == LiveOrderPhase.empty) {
-        _liveStatus = 'Connected · ${live.config.baseUrl}';
-      } else {
-        _liveStatus = live.statusMessage ?? 'Saved.';
-      }
-    });
-  }
-
   Future<void> _openLiveOrderPreview() async {
     final live = context.read<LiveOrderController>();
-    final cfg = _readLiveConfig().copyWith(enabled: true);
-    setState(() {
-      _liveEnabled = true;
-      _liveStatus = 'Opening preview…';
-    });
-    await live.saveConfig(cfg);
+    setState(() => _liveStatus = 'Opening preview…');
+    await live.syncFromRegister(persist: true, restartPoll: true);
     if (!mounted) return;
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const LiveOrderPage()));
   }
 
-  Future<void> _ensureLiveConfigSaved() async {
-    final live = context.read<LiveOrderController>();
-    final cfg = _readLiveConfig().copyWith(enabled: true);
-    _liveEnabled = true;
-    await live.saveConfig(cfg);
-    if (!mounted) return;
-    setState(() {
-      _liveHost.text = live.config.host;
-      _livePort.text = '${live.config.port}';
-      _livePoll.text = '${live.config.pollMs}';
-      _liveEnabled = live.config.enabled;
-    });
-  }
-
   Future<void> _liveOrderTest() async {
     setState(() => _liveStatus = 'Sending POST /test…');
-    await _ensureLiveConfigSaved();
-    if (!mounted) return;
     final live = context.read<LiveOrderController>();
+    await live.syncFromRegister(persist: true, restartPoll: false);
+    if (!mounted) return;
     final ok = await live.publishTest();
     if (!mounted) return;
     setState(() {
@@ -1025,8 +961,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   Future<void> _liveOrderClear() async {
     setState(() => _liveStatus = 'Sending POST /clear…');
-    await _ensureLiveConfigSaved();
-    if (!mounted) return;
     final live = context.read<LiveOrderController>();
     final ok = await live.clearOrder();
     if (!mounted) return;
@@ -1037,20 +971,6 @@ class _ConnectionPageState extends State<ConnectionPage> {
     });
   }
 
-  void _syncLiveFromController(LiveOrderController live) {
-    final cfg = live.config.normalized();
-    // Prefer MySQL host as a starting guess when live host is blank.
-    final mysqlHost = context
-        .read<BillboardController>()
-        .connection
-        .host
-        .trim();
-    _liveHost.text = cfg.host.isNotEmpty ? cfg.host : mysqlHost;
-    _livePort.text = '${cfg.port}';
-    _livePoll.text = '${cfg.pollMs}';
-    _liveEnabled = cfg.enabled;
-  }
-
   Widget _liveOrderView({
     required bool busy,
     required Color ink,
@@ -1058,7 +978,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
     required ColorScheme scheme,
   }) {
     final live = context.watch<LiveOrderController>();
+    final billboard = context.watch<BillboardController>();
     final saving = live.validating || live.actionBusy;
+    final host = live.config.host.trim();
+    final port = live.config.port;
+    final endpoint = host.isEmpty ? '—' : 'http://$host:$port';
+    final register = live.registerLabel;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1087,65 +1013,58 @@ class _ConnectionPageState extends State<ConnectionPage> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Shows the ticket the waiter is building now — before send-to-kitchen. Same Wi‑Fi as POS. No MySQL needed.',
+          'Billboard only reads liveorderserver / liveorderport from the '
+          'it_tregister row with liveorderonuse=1. The POS HTTP server runs '
+          'on that caja only while Order Entry landscape is open and '
+          'liveorderport_active=1 (Iniciar). Not editable here.',
           textAlign: TextAlign.center,
           style: TextStyle(color: muted, fontSize: 12, height: 1.35),
         ),
-        const SizedBox(height: 14),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          activeThumbColor: CamaleonColors.green,
-          title: Text(
-            'Enable',
-            style: TextStyle(color: ink, fontWeight: FontWeight.w600),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: CamaleonColors.mist,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CamaleonColors.line),
           ),
-          subtitle: Text(
-            'Poll POS http://IP:port/live-order',
-            style: TextStyle(color: muted, fontSize: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'From it_tregister',
+                style: TextStyle(
+                  color: muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _readonlyRow(
+                'Register',
+                register ?? (billboard.isMysqlConnected ? '—' : 'MySQL offline'),
+                ink,
+                muted,
+              ),
+              const SizedBox(height: 8),
+              _readonlyRow('Endpoint', endpoint, ink, muted),
+              const SizedBox(height: 8),
+              _readonlyRow(
+                'Status',
+                _livePhaseLabel(live),
+                ink,
+                muted,
+              ),
+            ],
           ),
-          value: _liveEnabled,
-          onChanged: busy || saving
-              ? null
-              : (v) => setState(() => _liveEnabled = v),
         ),
-        _field(
-          _liveHost,
-          'POS host IP',
-          Icons.wifi_tethering_rounded,
-          muted,
-          ink,
-          keyboard: TextInputType.url,
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _field(
-                _livePort,
-                'Port',
-                Icons.numbers,
-                muted,
-                ink,
-                keyboard: TextInputType.number,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _field(
-                _livePoll,
-                'Poll (ms)',
-                Icons.timer_outlined,
-                muted,
-                ink,
-                keyboard: TextInputType.number,
-              ),
-            ),
-          ],
-        ),
+        const SizedBox(height: 12),
         if (_liveStatus != null || live.statusMessage != null) ...[
           Text(
             _liveStatus ?? live.statusMessage!,
             textAlign: TextAlign.center,
-            maxLines: 2,
+            maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: _isPositive(_liveStatus ?? live.statusMessage!)
@@ -1159,7 +1078,22 @@ class _ConnectionPageState extends State<ConnectionPage> {
         SizedBox(
           height: 48,
           child: FilledButton.icon(
-            onPressed: busy || saving ? null : _saveLiveOrder,
+            onPressed: busy || saving
+                ? null
+                : () async {
+                    setState(() => _liveStatus = 'Reading it_tregister…');
+                    final ok = await live.syncFromRegister(
+                      persist: true,
+                      restartPoll: true,
+                    );
+                    if (!mounted) return;
+                    setState(() {
+                      _liveStatus = ok
+                          ? (live.statusMessage ?? 'Updated from it_tregister')
+                          : (live.statusMessage ??
+                                'No register with liveorderonuse=1.');
+                    });
+                  },
             icon: live.validating
                 ? SizedBox(
                     width: 18,
@@ -1169,9 +1103,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       color: scheme.onPrimary,
                     ),
                   )
-                : const Icon(Icons.save_outlined),
+                : const Icon(Icons.refresh_rounded),
             label: Text(
-              live.validating ? 'Checking…' : 'Save & apply',
+              live.validating ? 'Checking…' : 'Refresh from register',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ),
@@ -1216,12 +1150,54 @@ class _ConnectionPageState extends State<ConnectionPage> {
         ),
         const Spacer(),
         Text(
-          'POST /test · POST /clear · poll 400–1000 ms · port 8777',
+          'Read-only pointer · POS owns the server (onuse + Iniciar)',
           textAlign: TextAlign.center,
           style: TextStyle(color: muted, fontSize: 11),
         ),
       ],
     );
+  }
+
+  Widget _readonlyRow(String label, String value, Color ink, Color muted) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 78,
+          child: Text(
+            label,
+            style: TextStyle(color: muted, fontSize: 13),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _livePhaseLabel(LiveOrderController live) {
+    switch (live.phase) {
+      case LiveOrderPhase.live:
+        return 'Live';
+      case LiveOrderPhase.empty:
+        return 'Connected · empty ticket';
+      case LiveOrderPhase.connecting:
+        return 'Connecting…';
+      case LiveOrderPhase.waiting:
+        return 'Waiting';
+      case LiveOrderPhase.error:
+        return 'Error';
+      case LiveOrderPhase.idle:
+        return 'Idle';
+    }
   }
 
   String? _manualStatus(BillboardController c) {

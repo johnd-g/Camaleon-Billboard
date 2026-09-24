@@ -5,6 +5,7 @@ import 'package:camaleon_billboard/core/utils/qb_color.dart';
 import 'package:camaleon_billboard/core/utils/type_data.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
+import 'package:camaleon_billboard/domain/entities/live_order_config.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/domain/repositories/billboard_repository.dart';
 
@@ -454,6 +455,38 @@ ORDER BY ds.DateOut ASC
       ].where((e) => e.isNotEmpty).toList();
     } catch (_) {
       return const [];
+    }
+  }
+
+  @override
+  Future<LiveOrderRegisterEndpoint?> findLiveOrderEndpointInUse() async {
+    // Billboard follows the lock holder. POS only listens when that same row
+    // also has liveorderport_active=1 (and reg_deviceid matches that machine).
+    const sql =
+        'SELECT liveorderserver, liveorderport, liveorderport_active, '
+        'liveorderonuse, Regi_Name, Regi_Code '
+        'FROM it_tregister '
+        'WHERE liveorderonuse = 1 '
+        'ORDER BY Regi_Name ASC '
+        'LIMIT 1';
+
+    try {
+      final rows = await _client.query(sql);
+      if (rows.isEmpty) return null;
+      final row = rows.first;
+      final server = Utils.str(row['liveorderserver']);
+      final port = Utils.asInt(row['liveorderport'], 8777);
+      return LiveOrderRegisterEndpoint(
+        server: server,
+        port: port <= 0 ? 8777 : port,
+        active: Utils.asFlag(row['liveorderport_active']),
+        onUse: true,
+        regiName: Utils.str(row['Regi_Name']),
+        regiCode: Utils.str(row['Regi_Code']),
+      );
+    } catch (_) {
+      // Columns missing on older DBs, or not connected — ignore.
+      return null;
     }
   }
 

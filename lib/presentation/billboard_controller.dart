@@ -17,6 +17,7 @@ import 'package:camaleon_billboard/data/repositories/billboard_repository_impl.d
 import 'package:camaleon_billboard/data/repositories/connection_config_repository_impl.dart';
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
+import 'package:camaleon_billboard/domain/entities/live_order_config.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 import 'package:camaleon_billboard/domain/repositories/billboard_repository.dart';
 import 'package:camaleon_billboard/domain/repositories/connection_config_repository.dart';
@@ -121,6 +122,19 @@ class BillboardController extends ChangeNotifier {
   bool previewRotation = false;
 
   bool get hasRotationPlaylist => _rotationPlaylist.isNotEmpty;
+
+  bool get isMysqlConnected => _client.isConnected;
+
+  /// Reads `it_tregister` for the station with `liveorderonuse=1`.
+  Future<LiveOrderRegisterEndpoint?> findLiveOrderEndpointInUse() async {
+    if (!_client.isConnected) return null;
+    try {
+      return await _billboardRepo.findLiveOrderEndpointInUse();
+    } catch (e) {
+      if (kDebugMode) debugPrint('findLiveOrderEndpointInUse: $e');
+      return null;
+    }
+  }
 
   int get rotationPlaylistCount {
     final b = board;

@@ -1,5 +1,6 @@
 import 'package:camaleon_billboard/domain/entities/arrangement_block.dart';
 import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
+import 'package:camaleon_billboard/domain/entities/live_order_config.dart';
 import 'package:camaleon_billboard/domain/entities/menu_section.dart';
 
 abstract class BillboardRepository {
@@ -48,6 +49,13 @@ abstract class BillboardRepository {
 
   /// POS `it_tregister.Regi_Name` values (pickable device labels).
   Future<List<String>> listRegisterNames();
+
+  /// Live-order endpoint from `it_tregister` for the station currently in use
+  /// (`liveorderonuse=1`, preferably also `liveorderport_active=1`).
+  ///
+  /// Returns null when columns are missing, MySQL is down, or no station holds
+  /// the lock.
+  Future<LiveOrderRegisterEndpoint?> findLiveOrderEndpointInUse();
 
   /// True when this device already has at least one `bb_arrangement` row.
   Future<bool> hasArrangementFor(String compName);

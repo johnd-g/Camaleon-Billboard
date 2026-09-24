@@ -16,6 +16,19 @@ class LiveOrderConfig {
 
   bool get isReady => enabled && host.trim().isNotEmpty && port > 0;
 
+  /// Builds config from an [it_tregister] live-order row.
+  factory LiveOrderConfig.fromRegister(
+    LiveOrderRegisterEndpoint row, {
+    int pollMs = 500,
+  }) {
+    return LiveOrderConfig(
+      host: row.server,
+      port: row.port <= 0 ? 8777 : row.port,
+      pollMs: pollMs,
+      enabled: row.active && row.server.trim().isNotEmpty,
+    );
+  }
+
   String get baseUrl {
     final n = normalizeEndpoint(host: host, port: port);
     if (n.host.isEmpty) return '';
@@ -84,4 +97,43 @@ class LiveOrderConfig {
       enabled: enabled ?? this.enabled,
     );
   }
+}
+
+/// One POS register row from `it_tregister` live-order columns.
+///
+/// Billboard only **reads** [server]/[port] — they do not decide who runs
+/// the HTTP service. The POS starts `liveOrderPreview` on **this** register’s
+/// row only while Order Entry landscape is open, and only when all of:
+/// - `reg_deviceid` matches that POS machine
+/// - [active] (`liveorderport_active=1`, Iniciar)
+/// - [onUse] (`liveorderonuse=1` on this row alone; set on landscape enter,
+///   cleared on exit; if another register already holds 1, this POS does not
+///   listen)
+class LiveOrderRegisterEndpoint {
+  const LiveOrderRegisterEndpoint({
+    required this.server,
+    required this.port,
+    required this.active,
+    required this.onUse,
+    this.regiName = '',
+    this.regiCode = '',
+  });
+
+  /// `liveorderserver` — LAN IP Billboard should poll (pointer only).
+  final String server;
+
+  /// `liveorderport` — port Billboard should poll (pointer only).
+  final int port;
+
+  /// `liveorderport_active` — Iniciar; if 0, POS does not open the port.
+  final bool active;
+
+  /// `liveorderonuse` — this station owns landscape Order Entry lock.
+  final bool onUse;
+  final String regiName;
+  final String regiCode;
+
+  /// Ready for Billboard to poll: lock + Iniciar + non-empty endpoint.
+  bool get isUsable =>
+      active && onUse && server.trim().isNotEmpty && port > 0;
 }
