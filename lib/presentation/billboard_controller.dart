@@ -620,6 +620,7 @@ class BillboardController extends ChangeNotifier {
     bool silent = false,
     bool createArrangementIfMissing = true,
     bool scanLan = true,
+    bool forceLanScan = false,
     String? passwordOverride,
     List<String>? hostsHint,
   }) async {
@@ -654,7 +655,7 @@ class BillboardController extends ChangeNotifier {
 
       final explicitHost = cfg.host.trim();
 
-      if (cfg.isComplete) {
+      if (cfg.isComplete && !forceLanScan) {
         _setProgress('Connecting to ${cfg.host}…');
         final ok = await _billboardRepo.testConnection(cfg);
         if (ok) {
@@ -669,7 +670,12 @@ class BillboardController extends ChangeNotifier {
 
       // Prefer an explicit host (form / QR / hint) — never LAN-scan in that case.
       late final List<String> hosts;
-      if (hostsHint?.isNotEmpty == true) {
+      if (forceLanScan) {
+        _setProgress('Scanning the local network for MySQL…');
+        hosts = await LanMysqlDiscovery.findMysqlHosts(
+          onProgress: silent ? null : _setProgress,
+        );
+      } else if (hostsHint?.isNotEmpty == true) {
         hosts = List<String>.from(hostsHint!);
         if (explicitHost.isNotEmpty && !hosts.contains(explicitHost)) {
           hosts.insert(0, explicitHost);
