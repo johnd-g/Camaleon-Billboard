@@ -757,7 +757,9 @@ begin
     WizardForm.StatusLabel.Caption := CustomMessage('StatusStopCamaleon');
   LogDebug('>>> Stopping Camaleon Billboard before file copy');
 
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM camaleon_billboard.exe /T',
+  { No usar /T: el actualizador PowerShell nace desde Camaleon Billboard y
+    debe sobrevivir para esperar al instalador y volver a abrir la aplicación. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM camaleon_billboard.exe',
        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   LogDebug('taskkill camaleon_billboard.exe -> ' + IntToStr(ResultCode));
 

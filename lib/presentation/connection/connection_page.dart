@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import 'package:camaleon_billboard/core/db/qr_image_scanner.dart';
@@ -13,6 +14,7 @@ import 'package:camaleon_billboard/domain/entities/db_connection_config.dart';
 import 'package:camaleon_billboard/presentation/billboard_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_controller.dart';
 import 'package:camaleon_billboard/presentation/live_order/live_order_page.dart';
+import 'package:camaleon_billboard/services/update/update_check_service.dart';
 
 class ConnectionPage extends StatefulWidget {
   const ConnectionPage({super.key});
@@ -36,6 +38,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
   String? _status;
   String? _liveStatus;
   String? _templateComp;
+  String _versionLabel = '…';
+  bool _versionIsOutdated = false;
+  CamaleonVersionEntry? _latestRelease;
 
   bool get _cameraSupported {
     if (kIsWeb) return false;
@@ -60,6 +65,51 @@ class _ConnectionPageState extends State<ConnectionPage> {
     _refresh = TextEditingController(text: '${c.refreshSeconds}');
     _alpha = c.sortAlphabetical;
     _templateComp = c.templateCompName;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadVersionStatus());
+    });
+  }
+
+  Future<void> _loadVersionStatus() async {
+    final updateService = UpdateCheckService();
+    try {
+      // Both operations start only after the first frame and run without
+      // blocking navigation or the connection screen rendering.
+      final packageInfoFuture = PackageInfo.fromPlatform();
+      final updateResultFuture = updateService.checkForUpdates();
+
+      final packageInfo = await packageInfoFuture;
+      if (mounted) {
+        setState(
+          () =>
+              _versionLabel =
+                  'v${packageInfo.version}+${packageInfo.buildNumber}',
+        );
+      }
+
+      final result = await updateResultFuture;
+      if (mounted) {
+        final latest = updateService.lastLatestRelease;
+        setState(() {
+          _versionIsOutdated = result == UpdateCheckResult.updateAvailable;
+          _latestRelease = latest;
+        });
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[Camaleon Billboard Version] Check failed: $error');
+      }
+    } finally {
+      updateService.dispose();
+    }
+  }
+
+  void _openMysqlSettings() {
+    setState(() {
+      _showManual = true;
+      _liveStatus = null;
+    });
+    context.read<BillboardController>().useConnection(_readConfig());
   }
 
   /// On Android, Device is always the device name.
@@ -148,9 +198,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
       _comp.text = deviceName;
     }
     setState(() {
-      _status = host.isNotEmpty
-          ? 'Connecting to $host…'
-          : 'Searching for MySQL on the network…';
+      _status =
+          host.isNotEmpty
+              ? 'Connecting to $host…'
+              : 'Searching for MySQL on the network…';
     });
     await c.savePreferences(
       alphabetical: _alpha,
@@ -213,9 +264,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
         createArrangementIfMissing: true,
         scanLan: retryHost.isEmpty,
         passwordOverride: pass,
-        hostsHint: current.hosts.isNotEmpty
-            ? current.hosts
-            : (retryHost.isNotEmpty ? [retryHost] : c.lastDiscoveredHosts),
+        hostsHint:
+            current.hosts.isNotEmpty
+                ? current.hosts
+                : (retryHost.isNotEmpty ? [retryHost] : c.lastDiscoveredHosts),
       );
       if (!mounted) return current;
       if (current.ok) {
@@ -265,11 +317,12 @@ class _ConnectionPageState extends State<ConnectionPage> {
   }
 
   Future<String?> _askMysqlPassword(List<String> hosts) async {
-    final hostLine = hosts.isEmpty
-        ? 'a MySQL server'
-        : (hosts.length == 1
-              ? hosts.first
-              : '${hosts.length} servers (${hosts.take(3).join(', ')}${hosts.length > 3 ? '…' : ''})');
+    final hostLine =
+        hosts.isEmpty
+            ? 'a MySQL server'
+            : (hosts.length == 1
+                ? hosts.first
+                : '${hosts.length} servers (${hosts.take(3).join(', ')}${hosts.length > 3 ? '…' : ''})');
     return showDialog<String>(
       context: context,
       barrierDismissible: false,
@@ -408,21 +461,21 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           )
                         else
                           SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: _homeView(
-                                  c: c,
-                                  busy: busy,
-                                  compact: compact,
-                                  keyboardOpen: keyboard > 0,
-                                  ready: ready,
-                                  ink: ink,
-                                  muted: muted,
-                                  scheme: scheme,
-                                  isDark: isDark,
-                                  border: border,
-                                  surface: surface,
-                                ),
-                        ),
+                            hasScrollBody: false,
+                            child: _homeView(
+                              c: c,
+                              busy: busy,
+                              compact: compact,
+                              keyboardOpen: keyboard > 0,
+                              ready: ready,
+                              ink: ink,
+                              muted: muted,
+                              scheme: scheme,
+                              isDark: isDark,
+                              border: border,
+                              surface: surface,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -488,16 +541,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
             height: 52,
             child: FilledButton.icon(
               onPressed: busy ? null : _autoConnect,
-              icon: c.autoConnecting
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
-                        color: scheme.onPrimary,
-                      ),
-                    )
-                  : const Icon(Icons.bolt_rounded),
+              icon:
+                  c.autoConnecting
+                      ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: scheme.onPrimary,
+                        ),
+                      )
+                      : const Icon(Icons.bolt_rounded),
               label: Text(
                 c.autoConnecting ? 'Connecting…' : 'Connect',
                 style: const TextStyle(
@@ -536,25 +590,27 @@ class _ConnectionPageState extends State<ConnectionPage> {
             SizedBox(
               height: 52,
               child: FilledButton.icon(
-                onPressed: busy
-                    ? null
-                    : (_cameraSupported
-                          ? _scanQrFromCamera
-                          : _scanQrFromGallery),
-                icon: _scanningQr
-                    ? SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.2,
-                          color: scheme.onPrimary,
+                onPressed:
+                    busy
+                        ? null
+                        : (_cameraSupported
+                            ? _scanQrFromCamera
+                            : _scanQrFromGallery),
+                icon:
+                    _scanningQr
+                        ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: scheme.onPrimary,
+                          ),
+                        )
+                        : Icon(
+                          _cameraSupported
+                              ? Icons.qr_code_scanner_rounded
+                              : Icons.image_outlined,
                         ),
-                      )
-                    : Icon(
-                        _cameraSupported
-                            ? Icons.qr_code_scanner_rounded
-                            : Icons.image_outlined,
-                      ),
                 label: Text(
                   _scanningQr
                       ? 'Scanning…'
@@ -604,18 +660,28 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       onPressed: _scanQrFromGallery,
                     ),
                   ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _secondaryBtn(
+                    busy: busy,
+                    icon: Icons.storage_rounded,
+                    label: 'MySQL',
+                    onPressed: _openMysqlSettings,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: busy ? null : _autoConnect,
-              icon: c.autoConnecting
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.bolt_rounded, size: 18),
+              icon:
+                  c.autoConnecting
+                      ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.bolt_rounded, size: 18),
               label: Text(c.autoConnecting ? 'Searching…' : 'Auto-connect'),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -630,19 +696,19 @@ class _ConnectionPageState extends State<ConnectionPage> {
             color: surface,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: ready
-                  ? CamaleonColors.green.withValues(alpha: 0.35)
-                  : border,
+              color:
+                  ready ? CamaleonColors.green.withValues(alpha: 0.35) : border,
             ),
-            boxShadow: isDark
-                ? null
-                : [
-                    BoxShadow(
-                      color: CamaleonColors.ink.withValues(alpha: 0.05),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+            boxShadow:
+                isDark
+                    ? null
+                    : [
+                      BoxShadow(
+                        color: CamaleonColors.ink.withValues(alpha: 0.05),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -696,30 +762,54 @@ class _ConnectionPageState extends State<ConnectionPage> {
             style: TextStyle(
               color:
                   _isPositive(c.autoConnectStatus ?? _status ?? c.errorMessage!)
-                  ? CamaleonColors.green
-                  : CamaleonColors.orange,
+                      ? CamaleonColors.green
+                      : CamaleonColors.orange,
               fontSize: 13,
             ),
           ),
         ],
         const Spacer(),
         if (!keyboardOpen)
-          TextButton(
-            onPressed: busy
-                ? null
-                : () {
-                    setState(() {
-                      _showManual = true;
-                      _liveStatus = null;
-                    });
-                    context.read<BillboardController>().useConnection(
-                      _readConfig(),
-                    );
-                  },
-            child: Text('MySQL connection', style: TextStyle(color: muted)),
-          ),
+          _versionIsOutdated
+              ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_rounded,
+                    color: Color(0xFFE17100),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      _versionFooterText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFE17100),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+              : Text(
+                _versionFooterText,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: muted, fontWeight: FontWeight.w600),
+              ),
       ],
     );
+  }
+
+  String get _versionFooterText {
+    final release = _latestRelease;
+    if (_versionIsOutdated && release != null) {
+      return 'Update available: Version ${release.version} Build ${release.build}';
+    }
+    return _versionLabel;
   }
 
   Widget _manualView({
@@ -743,9 +833,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
           children: [
             IconButton(
               tooltip: 'Back',
-              onPressed: busy
-                  ? null
-                  : () => setState(() => _showManual = false),
+              onPressed:
+                  busy ? null : () => setState(() => _showManual = false),
               icon: Icon(Icons.arrow_back_rounded, color: muted),
             ),
             Expanded(
@@ -814,9 +903,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   isDense: true,
                   value:
                       _templateComp != null &&
-                          c.knownCompNames.contains(_templateComp)
-                      ? _templateComp
-                      : null,
+                              c.knownCompNames.contains(_templateComp)
+                          ? _templateComp
+                          : null,
                   style: TextStyle(color: ink, fontSize: 14),
                   hint: Text('New Screen 1', style: TextStyle(color: muted)),
                   items: [
@@ -867,9 +956,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: _isPositive(status)
-                  ? CamaleonColors.green
-                  : CamaleonColors.orange,
+              color:
+                  _isPositive(status)
+                      ? CamaleonColors.green
+                      : CamaleonColors.orange,
               fontSize: 12,
             ),
           ),
@@ -879,13 +969,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
           height: 48,
           child: OutlinedButton.icon(
             onPressed: busy ? null : _searchDatabases,
-            icon: c.searchingDatabases
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  )
-                : const Icon(Icons.search_rounded),
+            icon:
+                c.searchingDatabases
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                    : const Icon(Icons.search_rounded),
             label: Text(
               c.searchingDatabases ? 'Searching…' : 'Search',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -897,16 +988,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
           height: 48,
           child: FilledButton.icon(
             onPressed: busy ? null : _autoConnect,
-            icon: c.autoConnecting
-                ? SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: scheme.onPrimary,
-                    ),
-                  )
-                : const Icon(Icons.link_rounded),
+            icon:
+                c.autoConnecting
+                    ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: scheme.onPrimary,
+                      ),
+                    )
+                    : const Icon(Icons.link_rounded),
             label: Text(
               c.autoConnecting ? 'Connecting…' : 'Connect',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -914,12 +1006,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
           ),
         ),
         const SizedBox(height: 16),
-        _liveOrderSection(
-          busy: busy,
-          ink: ink,
-          muted: muted,
-          scheme: scheme,
-        ),
+        _liveOrderSection(busy: busy, ink: ink, muted: muted, scheme: scheme),
         const SizedBox(height: 12),
       ],
     );
@@ -943,9 +1030,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
     final ok = await live.publishTest();
     if (!mounted) return;
     setState(() {
-      _liveStatus = ok
-          ? 'Test order published · ${live.config.baseUrl}'
-          : (live.statusMessage ?? 'Test failed.');
+      _liveStatus =
+          ok
+              ? 'Test order published · ${live.config.baseUrl}'
+              : (live.statusMessage ?? 'Test failed.');
     });
   }
 
@@ -955,9 +1043,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
     final ok = await live.clearOrder();
     if (!mounted) return;
     setState(() {
-      _liveStatus = ok
-          ? 'Live order cleared.'
-          : (live.statusMessage ?? 'Clear failed.');
+      _liveStatus =
+          ok ? 'Live order cleared.' : (live.statusMessage ?? 'Clear failed.');
     });
   }
 
@@ -1015,19 +1102,15 @@ class _ConnectionPageState extends State<ConnectionPage> {
               const SizedBox(height: 10),
               _readonlyRow(
                 'Register',
-                register ?? (billboard.isMysqlConnected ? '—' : 'MySQL offline'),
+                register ??
+                    (billboard.isMysqlConnected ? '—' : 'MySQL offline'),
                 ink,
                 muted,
               ),
               const SizedBox(height: 8),
               _readonlyRow('Endpoint', endpoint, ink, muted),
               const SizedBox(height: 8),
-              _readonlyRow(
-                'Status',
-                _livePhaseLabel(live),
-                ink,
-                muted,
-              ),
+              _readonlyRow('Status', _livePhaseLabel(live), ink, muted),
             ],
           ),
         ),
@@ -1039,9 +1122,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: _isPositive(_liveStatus ?? live.statusMessage!)
-                  ? CamaleonColors.green
-                  : CamaleonColors.orange,
+              color:
+                  _isPositive(_liveStatus ?? live.statusMessage!)
+                      ? CamaleonColors.green
+                      : CamaleonColors.orange,
               fontSize: 12,
             ),
           ),
@@ -1050,32 +1134,36 @@ class _ConnectionPageState extends State<ConnectionPage> {
         SizedBox(
           height: 48,
           child: FilledButton.icon(
-            onPressed: busy || saving
-                ? null
-                : () async {
-                    setState(() => _liveStatus = 'Reading it_tregister…');
-                    final ok = await live.syncFromRegister(
-                      persist: true,
-                      restartPoll: true,
-                    );
-                    if (!mounted) return;
-                    setState(() {
-                      _liveStatus = ok
-                          ? (live.statusMessage ?? 'Updated from it_tregister')
-                          : (live.statusMessage ??
-                                'No register with liveorderonuse=1.');
-                    });
-                  },
-            icon: live.validating
-                ? SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: scheme.onPrimary,
-                    ),
-                  )
-                : const Icon(Icons.refresh_rounded),
+            onPressed:
+                busy || saving
+                    ? null
+                    : () async {
+                      setState(() => _liveStatus = 'Reading it_tregister…');
+                      final ok = await live.syncFromRegister(
+                        persist: true,
+                        restartPoll: true,
+                      );
+                      if (!mounted) return;
+                      setState(() {
+                        _liveStatus =
+                            ok
+                                ? (live.statusMessage ??
+                                    'Updated from it_tregister')
+                                : (live.statusMessage ??
+                                    'No register with liveorderonuse=1.');
+                      });
+                    },
+            icon:
+                live.validating
+                    ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: scheme.onPrimary,
+                      ),
+                    )
+                    : const Icon(Icons.refresh_rounded),
             label: Text(
               live.validating ? 'Checking…' : 'Refresh from register',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -1136,10 +1224,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
       children: [
         SizedBox(
           width: 78,
-          child: Text(
-            label,
-            style: TextStyle(color: muted, fontSize: 13),
-          ),
+          child: Text(label, style: TextStyle(color: muted, fontSize: 13)),
         ),
         Expanded(
           child: Text(
@@ -1226,6 +1311,15 @@ class _ConnectionPageState extends State<ConnectionPage> {
             ),
           ),
         ],
+        const SizedBox(width: 8),
+        Expanded(
+          child: _secondaryBtn(
+            busy: busy,
+            icon: Icons.storage_rounded,
+            label: 'MySQL',
+            onPressed: _openMysqlSettings,
+          ),
+        ),
       ],
     );
   }
@@ -1307,15 +1401,16 @@ class _ConnectionPageState extends State<ConnectionPage> {
               for (final name in dbs)
                 DropdownMenuItem(value: name, child: Text(name)),
             ],
-            onChanged: busy
-                ? null
-                : (v) {
-                    if (v == null) return;
-                    setState(() => _db.text = v);
-                    context.read<BillboardController>().useConnection(
-                      _readConfig(),
-                    );
-                  },
+            onChanged:
+                busy
+                    ? null
+                    : (v) {
+                      if (v == null) return;
+                      setState(() => _db.text = v);
+                      context.read<BillboardController>().useConnection(
+                        _readConfig(),
+                      );
+                    },
           ),
         ),
       ),

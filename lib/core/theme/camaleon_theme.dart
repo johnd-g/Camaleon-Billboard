@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Brand tokens from https://www.camaleonpos.com (css + homepage accents).
 abstract final class CamaleonColors {
   /// Brand green from Camaleon POS web.
   static const green = Color(0xFF009966);

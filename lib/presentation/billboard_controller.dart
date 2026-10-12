@@ -266,6 +266,13 @@ class BillboardController extends ChangeNotifier {
       return;
     }
 
+    // Paint the connection screen before attempting saved MySQL credentials.
+    // A slow/offline server must never leave startup behind a full-screen
+    // loader. The silent attempt continues asynchronously from the UI's point
+    // of view and opens the board if it succeeds.
+    phase = BillboardPhase.needsConnection;
+    notifyListeners();
+
     final ok = await autoConnect(silent: true, scanLan: false);
     if (!ok.ok) {
       phase = BillboardPhase.needsConnection;
@@ -2175,7 +2182,7 @@ class BillboardController extends ChangeNotifier {
           dir.path,
           'bb_media',
           '${DateTime.now().millisecondsSinceEpoch}_'
-          '${UnicodeText.safeFileName(p.basename(path))}',
+              '${UnicodeText.safeFileName(p.basename(path))}',
         ),
       );
       await dest.parent.create(recursive: true);
