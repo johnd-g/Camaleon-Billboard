@@ -74,8 +74,9 @@ class _BoardPageState extends State<BoardPage> {
   @override
   Widget build(BuildContext context) {
     final phase = context.select((BillboardController c) => c.phase);
-    final errorMessage =
-        context.select((BillboardController c) => c.errorMessage);
+    final errorMessage = context.select(
+      (BillboardController c) => c.errorMessage,
+    );
 
     if (phase == BillboardPhase.loading ||
         phase == BillboardPhase.bootstrapping) {
@@ -91,8 +92,7 @@ class _BoardPageState extends State<BoardPage> {
       return const ConnectionPage(key: ValueKey('connection'));
     }
 
-    final hasBoard =
-        context.select((BillboardController c) => c.board != null);
+    final hasBoard = context.select((BillboardController c) => c.board != null);
     if (phase == BillboardPhase.error || !hasBoard) {
       final c = context.read<BillboardController>();
       return Scaffold(
@@ -133,72 +133,59 @@ class _BoardPageState extends State<BoardPage> {
       );
     }
 
-    final editing =
-        context.select((BillboardController c) => c.layoutEditing);
+    final editing = context.select((BillboardController c) => c.layoutEditing);
     final screen = MediaQuery.sizeOf(context);
     final sideEditor = editing && screen.width >= 800;
     const sideW = 320.0;
-    const topBarH = 72.0;
 
     final board = context.watch<BillboardController>().board!;
     final hasBackdrop = board.boardBackgroundPictures.isNotEmpty;
     final bg = hasBackdrop ? Colors.black : QbColors.of(board.mainBackColor);
-    MenuSection? selectedSection;
-    if (_selectedId != null) {
-      for (final s in board.sections) {
-        if (s.arrangement.id == _selectedId) {
-          selectedSection = s;
-          break;
-        }
-      }
-    }
 
     return Focus(
       focusNode: _boardFocus,
       onKeyEvent: _onBoardKeyEvent,
       child: Scaffold(
-      backgroundColor: bg,
-      body: Stack(
-        children: [
-          // Positioned MUST be a direct Stack child (Selector cannot wrap it).
-          Positioned(
-            left: 0,
-            right: sideEditor ? sideW : 0,
-            top: editing ? topBarH : 0,
-            bottom: editing && !sideEditor
-                ? (selectedSection == null ? 88 : 210)
-                : 0,
-            child: Selector<BillboardController, _CanvasKey>(
-              selector: (_, c) => _CanvasKey(
-                board: c.board!,
-                editing: c.layoutEditing,
-                customerDisplay: c.customerDisplay,
-                activeRotationId: c.activeRotationId,
-                previewRotation: c.previewRotation,
-                selectedId: _selectedId,
+        backgroundColor: bg,
+        body: Stack(
+          children: [
+            // Positioned MUST be a direct Stack child (Selector cannot wrap it).
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: Selector<BillboardController, _CanvasKey>(
+                selector: (_, c) => _CanvasKey(
+                  board: c.board!,
+                  editing: c.layoutEditing,
+                  customerDisplay: c.customerDisplay,
+                  activeRotationId: c.activeRotationId,
+                  previewRotation: c.previewRotation,
+                  selectedId: _selectedId,
+                ),
+                builder: (context, key, _) {
+                  return _BoardCanvasLayer(
+                    board: key.board,
+                    editing: key.editing,
+                    customerDisplay: key.customerDisplay,
+                    selectedId: key.selectedId,
+                    screen: screen,
+                    maxBlockWidth: _maxBlockWidth,
+                    maxPos: _maxPos,
+                    onToggleChrome: () =>
+                        setState(() => _chromeHidden = !_chromeHidden),
+                    onSelectBlock: _selectBlock,
+                    onClearSelection: () => setState(() => _selectedId = null),
+                    designWidth: _designWidth,
+                    designHeight: _designHeight,
+                    withSelectedOnTop: _withSelectedOnTop,
+                  );
+                },
               ),
-              builder: (context, key, _) {
-                return _BoardCanvasLayer(
-                  board: key.board,
-                  editing: key.editing,
-                  customerDisplay: key.customerDisplay,
-                  selectedId: key.selectedId,
-                  screen: screen,
-                  maxBlockWidth: _maxBlockWidth,
-                  maxPos: _maxPos,
-                  onToggleChrome: () =>
-                      setState(() => _chromeHidden = !_chromeHidden),
-                  onSelectBlock: _selectBlock,
-                  onClearSelection: () => setState(() => _selectedId = null),
-                  designWidth: _designWidth,
-                  designHeight: _designHeight,
-                  withSelectedOnTop: _withSelectedOnTop,
-                );
-              },
             ),
-          ),
-          // Brand watermark — fixed to screen bottom-left (outside InteractiveViewer).
-          Positioned(
+            // Brand watermark — fixed to screen bottom-left (outside InteractiveViewer).
+            Positioned(
               left: 0,
               bottom: 0,
               child: SafeArea(
@@ -221,275 +208,276 @@ class _BoardPageState extends State<BoardPage> {
                 ),
               ),
             ),
-          if (board.hasMultipleBoardBackgrounds)
-            Positioned(
-              left: 12,
-              right: sideEditor ? sideW + 12 : 12,
-              top: editing ? 72 : 12,
-              child: SafeArea(
-                bottom: false,
-                child: Material(
-                  color: const Color(0xEE7A4E00),
-                  borderRadius: BorderRadius.circular(12),
-                  elevation: 6,
-                  child: const Padding(
-                    padding: EdgeInsets.fromLTRB(12, 10, 12, 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          color: Color(0xFFFFE7A3),
-                          size: 20,
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Warning: more than one board background photo '
-                            '(bb_background=1). Only one is allowed.',
-                            style: TextStyle(
-                              color: Color(0xFFFFF4D6),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              height: 1.3,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (editing)
-            Selector<BillboardController, _ChromeKey>(
-              selector: (_, c) => _ChromeKey(
-                board: c.board!,
-                dirty: c.layoutDirty,
-                saving: c.savingLayout,
-                creating: c.creatingBlock,
-                uploading: c.uploadingBoardBackground,
-                customerDisplay: c.customerDisplay,
-                selectedId: _selectedId,
-              ),
-              builder: (context, key, _) {
-                final c = context.read<BillboardController>();
-                final designH = _designHeight(key.board);
-                MenuSection? chromeSelected;
-                if (_selectedId != null) {
-                  for (final s in key.board.sections) {
-                    if (s.arrangement.id == _selectedId) {
-                      chromeSelected = s;
-                      break;
-                    }
-                  }
-                }
-                final dockEditorTop = !sideEditor &&
-                    chromeSelected != null &&
-                    chromeSelected.arrangement.yDistance > designH * 0.42;
-                return _EditChrome(
-                  selectedId: _selectedId,
-                  board: key.board,
-                  saving: key.saving,
-                  dirty: key.dirty,
-                  uploadingBackground: key.uploading,
-                  sidePanel: sideEditor,
-                  dockTop: dockEditorTop,
-                  sideWidth: sideW,
-                  onCancel: () async {
-                    setState(() => _selectedId = null);
-                    await c.cancelLayoutEdit();
-                  },
-                  onSave: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final ok = await c.saveLayoutEdits();
-                    if (!mounted) return;
-                    setState(() => _selectedId = null);
-                    if (ok) return;
-                    messenger.hideCurrentSnackBar();
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          c.errorMessage ?? 'Could not save the layout',
-                        ),
-                        behavior: SnackBarBehavior.floating,
-                        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  },
-                  onBoardBackgroundColor: c.setBoardBackgroundColor,
-                  onPickBackgroundImage: _pickBoardBackgroundImage,
-                  onPickBackgroundVideo: _pickBoardBackgroundVideo,
-                  onClearBackgroundImage: _clearBoardBackgroundImage,
-                  onPickBlockImage: () =>
-                      _browseSelectedMediaFile(ArrangementMediaType.image),
-                  onPickBlockVideo: () =>
-                      _browseSelectedMediaFile(ArrangementMediaType.video),
-                  onClearBlockMedia: _clearSelectedBlockMedia,
-                  onAddMenuSection: _addMenuSection,
-                  onAddOfferSection: _addOfferSection,
-                  onAddRotatingOffers: _addRotatingOffers,
-                  onAddPhotoBlock: _addPhotoBlock,
-                  onDeleteBlock: _deleteSelectedBlock,
-                  creatingBlock: key.creating,
-                  customerDisplay: key.customerDisplay,
-                  onCustomerDisplayChanged: c.setCustomerDisplay,
-                  onStylePatch:
-                      ({
-                        int? classFontDelta,
-                        int? itemFontDelta,
-                        int? classFontSize,
-                        int? modifierFontSize,
-                        int? classForeColor,
-                        int? classBackColor,
-                        int? itemForeColor,
-                        int? itemBackColor,
-                        int? mainBackColor,
-                        int? modifierColor,
-                        bool? classBold,
-                        bool? itemBold,
-                        bool? classUpperCase,
-                        bool? itemUpperCase,
-                        bool? boardBackground,
-                        int? maxWidth,
-                        String? classFontName,
-                        String? itemFontName,
-                        String? modifierFontName,
-                        ArrangementContentType? contentType,
-                        int? offerId,
-                        ArrangementMediaType? mediaType,
-                        String? mediaFile,
-                        ArrangementMediaFit? mediaFit,
-                        double? mediaOpacity,
-                        int? displayOrder,
-                        int? displaySeconds,
-                        int? rangeOffset,
-                        int? rangeCount,
-                        int? borderWidth,
-                        String? borderColor,
-                        bool? videoLoop,
-                        bool? videoMuted,
-                      }) {
-                        final id = _selectedId;
-                        if (id == null) return;
-                        if (maxWidth != null) {
-                          c.resizeArrangement(
-                            arrangementId: id,
-                            maxWidth: maxWidth,
-                          );
-                        }
-                        c.updateArrangementStyle(
-                          arrangementId: id,
-                          classFontDelta: classFontDelta,
-                          itemFontDelta: itemFontDelta,
-                          classFontSize: classFontSize,
-                          modifierFontSize: modifierFontSize,
-                          classForeColor: classForeColor,
-                          classBackColor: classBackColor,
-                          itemForeColor: itemForeColor,
-                          itemBackColor: itemBackColor,
-                          mainBackColor: mainBackColor,
-                          modifierColor: modifierColor,
-                          classBold: classBold,
-                          itemBold: itemBold,
-                          classUpperCase: classUpperCase,
-                          itemUpperCase: itemUpperCase,
-                          boardBackground: boardBackground,
-                          classFontName: classFontName,
-                          itemFontName: itemFontName,
-                          modifierFontName: modifierFontName,
-                          contentType: contentType,
-                          offerId: offerId,
-                          mediaType: mediaType,
-                          mediaFile: mediaFile,
-                          mediaFit: mediaFit,
-                          mediaOpacity: mediaOpacity,
-                          displayOrder: displayOrder,
-                          displaySeconds: displaySeconds,
-                          rangeOffset: rangeOffset,
-                          rangeCount: rangeCount,
-                          borderWidth: borderWidth,
-                          borderColor: borderColor,
-                          videoLoop: videoLoop,
-                          videoMuted: videoMuted,
-                        );
-                      },
-                );
-              },
-            )
-          else if (!_chromeHidden)
-            Positioned(
-              right: 12,
-              top: 12,
-              child: Builder(
-                builder: (context) {
-                  final c = context.watch<BillboardController>();
-                  return Material(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
+            if (board.hasMultipleBoardBackgrounds)
+              Positioned(
+                left: 12,
+                right: sideEditor ? sideW + 12 : 12,
+                top: editing ? 72 : 12,
+                child: SafeArea(
+                  bottom: false,
+                  child: Material(
+                    color: const Color(0xEE7A4E00),
+                    borderRadius: BorderRadius.circular(12),
+                    elevation: 6,
+                    child: const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 10, 12, 10),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            c.board?.compName ?? '',
-                            style: const TextStyle(color: Colors.white70),
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Color(0xFFFFE7A3),
+                            size: 20,
                           ),
-                          IconButton(
-                            tooltip: 'Edit layout',
-                            onPressed: _enterLayoutEdit,
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: Colors.white,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Reload',
-                            onPressed: () => c.reloadSilent(full: true),
-                            icon: const Icon(
-                              Icons.refresh,
-                              color: Colors.white,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Settings',
-                            onPressed: () => c.disconnectToSettings(),
-                            icon: const Icon(
-                              Icons.settings,
-                              color: Colors.white,
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Warning: more than one board background photo '
+                              '(bb_background=1). Only one is allowed.',
+                              style: TextStyle(
+                                color: Color(0xFFFFF4D6),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                height: 1.3,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          if (!editing)
-            Positioned(
-              left: 0,
-              top: 0,
-              child: SafeArea(
-                right: false,
-                bottom: false,
-                child: SizedBox(
-                  width: 64,
-                  height: 64,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _onExitCornerTap,
                   ),
                 ),
               ),
-            ),
-        ],
+            if (editing)
+              Selector<BillboardController, _ChromeKey>(
+                selector: (_, c) => _ChromeKey(
+                  board: c.board!,
+                  dirty: c.layoutDirty,
+                  saving: c.savingLayout,
+                  creating: c.creatingBlock,
+                  uploading: c.uploadingBoardBackground,
+                  customerDisplay: c.customerDisplay,
+                  selectedId: _selectedId,
+                ),
+                builder: (context, key, _) {
+                  final c = context.read<BillboardController>();
+                  final designH = _designHeight(key.board);
+                  MenuSection? chromeSelected;
+                  if (_selectedId != null) {
+                    for (final s in key.board.sections) {
+                      if (s.arrangement.id == _selectedId) {
+                        chromeSelected = s;
+                        break;
+                      }
+                    }
+                  }
+                  final dockEditorTop =
+                      !sideEditor &&
+                      chromeSelected != null &&
+                      chromeSelected.arrangement.yDistance > designH * 0.42;
+                  return _EditChrome(
+                    selectedId: _selectedId,
+                    board: key.board,
+                    saving: key.saving,
+                    dirty: key.dirty,
+                    uploadingBackground: key.uploading,
+                    sidePanel: sideEditor,
+                    dockTop: dockEditorTop,
+                    sideWidth: sideW,
+                    onCancel: () async {
+                      setState(() => _selectedId = null);
+                      await c.cancelLayoutEdit();
+                    },
+                    onSave: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final ok = await c.saveLayoutEdits();
+                      if (!mounted) return;
+                      setState(() => _selectedId = null);
+                      if (ok) return;
+                      messenger.hideCurrentSnackBar();
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            c.errorMessage ?? 'Could not save the layout',
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    },
+                    onBoardBackgroundColor: c.setBoardBackgroundColor,
+                    onPickBackgroundImage: _pickBoardBackgroundImage,
+                    onPickBackgroundVideo: _pickBoardBackgroundVideo,
+                    onClearBackgroundImage: _clearBoardBackgroundImage,
+                    onPickBlockImage: () =>
+                        _browseSelectedMediaFile(ArrangementMediaType.image),
+                    onPickBlockVideo: () =>
+                        _browseSelectedMediaFile(ArrangementMediaType.video),
+                    onClearBlockMedia: _clearSelectedBlockMedia,
+                    onAddMenuSection: _addMenuSection,
+                    onAddOfferSection: _addOfferSection,
+                    onAddRotatingOffers: _addRotatingOffers,
+                    onAddPhotoBlock: _addPhotoBlock,
+                    onDeleteBlock: _deleteSelectedBlock,
+                    creatingBlock: key.creating,
+                    customerDisplay: key.customerDisplay,
+                    onCustomerDisplayChanged: c.setCustomerDisplay,
+                    onStylePatch:
+                        ({
+                          int? classFontDelta,
+                          int? itemFontDelta,
+                          int? classFontSize,
+                          int? modifierFontSize,
+                          int? classForeColor,
+                          int? classBackColor,
+                          int? itemForeColor,
+                          int? itemBackColor,
+                          int? mainBackColor,
+                          int? modifierColor,
+                          bool? classBold,
+                          bool? itemBold,
+                          bool? classUpperCase,
+                          bool? itemUpperCase,
+                          bool? boardBackground,
+                          int? maxWidth,
+                          String? classFontName,
+                          String? itemFontName,
+                          String? modifierFontName,
+                          ArrangementContentType? contentType,
+                          int? offerId,
+                          ArrangementMediaType? mediaType,
+                          String? mediaFile,
+                          ArrangementMediaFit? mediaFit,
+                          double? mediaOpacity,
+                          int? displayOrder,
+                          int? displaySeconds,
+                          int? rangeOffset,
+                          int? rangeCount,
+                          int? borderWidth,
+                          String? borderColor,
+                          bool? videoLoop,
+                          bool? videoMuted,
+                        }) {
+                          final id = _selectedId;
+                          if (id == null) return;
+                          if (maxWidth != null) {
+                            c.resizeArrangement(
+                              arrangementId: id,
+                              maxWidth: maxWidth,
+                            );
+                          }
+                          c.updateArrangementStyle(
+                            arrangementId: id,
+                            classFontDelta: classFontDelta,
+                            itemFontDelta: itemFontDelta,
+                            classFontSize: classFontSize,
+                            modifierFontSize: modifierFontSize,
+                            classForeColor: classForeColor,
+                            classBackColor: classBackColor,
+                            itemForeColor: itemForeColor,
+                            itemBackColor: itemBackColor,
+                            mainBackColor: mainBackColor,
+                            modifierColor: modifierColor,
+                            classBold: classBold,
+                            itemBold: itemBold,
+                            classUpperCase: classUpperCase,
+                            itemUpperCase: itemUpperCase,
+                            boardBackground: boardBackground,
+                            classFontName: classFontName,
+                            itemFontName: itemFontName,
+                            modifierFontName: modifierFontName,
+                            contentType: contentType,
+                            offerId: offerId,
+                            mediaType: mediaType,
+                            mediaFile: mediaFile,
+                            mediaFit: mediaFit,
+                            mediaOpacity: mediaOpacity,
+                            displayOrder: displayOrder,
+                            displaySeconds: displaySeconds,
+                            rangeOffset: rangeOffset,
+                            rangeCount: rangeCount,
+                            borderWidth: borderWidth,
+                            borderColor: borderColor,
+                            videoLoop: videoLoop,
+                            videoMuted: videoMuted,
+                          );
+                        },
+                  );
+                },
+              )
+            else if (!_chromeHidden)
+              Positioned(
+                right: 12,
+                top: 12,
+                child: Builder(
+                  builder: (context) {
+                    final c = context.watch<BillboardController>();
+                    return Material(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              c.board?.compName ?? '',
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            IconButton(
+                              tooltip: 'Edit layout',
+                              onPressed: _enterLayoutEdit,
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Colors.white,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Reload',
+                              onPressed: () => c.reloadSilent(full: true),
+                              icon: const Icon(
+                                Icons.refresh,
+                                color: Colors.white,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Settings',
+                              onPressed: () => c.disconnectToSettings(),
+                              icon: const Icon(
+                                Icons.settings,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            if (!editing)
+              Positioned(
+                left: 0,
+                top: 0,
+                child: SafeArea(
+                  right: false,
+                  bottom: false,
+                  child: SizedBox(
+                    width: 64,
+                    height: 64,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _onExitCornerTap,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -865,10 +853,7 @@ class _BoardPageState extends State<BoardPage> {
               style: const TextStyle(color: Colors.white70),
             ),
             actions: [
-              TextButton(
-                onPressed: cancel,
-                child: const Text('Cancel'),
-              ),
+              TextButton(onPressed: cancel, child: const Text('Cancel')),
               FilledButton(
                 onPressed: accept,
                 style: FilledButton.styleFrom(
@@ -918,7 +903,8 @@ class _BoardPageState extends State<BoardPage> {
         ? file.name
         : (existing.isNotEmpty ? p.basename(existing) : 'media.bin');
     final safeName = UnicodeText.safeFileName(rawName);
-    final needsCopy = existing.isEmpty ||
+    final needsCopy =
+        existing.isEmpty ||
         UnicodeText.mysqlSafe(existing) != existing ||
         safeName != rawName;
 
@@ -1255,19 +1241,20 @@ class _BoardCanvasLayer extends StatelessWidget {
   final double Function(BillboardBoard) designWidth;
   final double Function(BillboardBoard) designHeight;
   final List<T> Function<T>(List<T> items, int Function(T) idOf)
-      withSelectedOnTop;
+  withSelectedOnTop;
 
   @override
   Widget build(BuildContext context) {
     final c = context.read<BillboardController>();
     // Live ticket panel only while POS has an active non-empty order.
     // When empty/cleared, hide entirely and use the full board.
-    final liveReady =
-        context.select((LiveOrderController l) => l.config.isReady);
-    final liveTicket =
-        context.select((LiveOrderController l) => l.showCustomerTicket);
-    final showOrderPanel = customerDisplay &&
-        (!liveReady || liveTicket);
+    final liveReady = context.select(
+      (LiveOrderController l) => l.config.isReady,
+    );
+    final liveTicket = context.select(
+      (LiveOrderController l) => l.showCustomerTicket,
+    );
+    final showOrderPanel = customerDisplay && (!liveReady || liveTicket);
     final designW = designWidth(board);
     final designH = designHeight(board);
 
@@ -1280,8 +1267,9 @@ class _BoardCanvasLayer extends StatelessWidget {
         if (c.isArrangementVisible(s.arrangement)) s,
     ], (s) => s.arrangement.id);
     final bgPictures = board.boardBackgroundPictures;
-    final activeBgPictures =
-        bgPictures.length <= 1 ? bgPictures : bgPictures.take(1).toList();
+    final activeBgPictures = bgPictures.length <= 1
+        ? bgPictures
+        : bgPictures.take(1).toList();
     final fgPictures = [
       for (final p in pictures)
         if (!p.arrangement.isBoardBackground) p,
@@ -1297,212 +1285,180 @@ class _BoardCanvasLayer extends StatelessWidget {
       (BillboardController c) => c.poleDisplayFloating,
     );
     final boardView = GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onDoubleTap: editing ? null : onToggleChrome,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return InteractiveViewer(
-                    panEnabled: false,
-                    scaleEnabled: false,
-                    minScale: 0.4,
-                    maxScale: 3,
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: editing ? null : onToggleChrome,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return InteractiveViewer(
+            panEnabled: false,
+            scaleEnabled: false,
+            minScale: 0.4,
+            maxScale: 3,
+            child: SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (activeBgPictures.isEmpty) ColoredBox(color: bg),
+                  for (final pic in activeBgPictures)
+                    Positioned.fill(
+                      key: ValueKey('bg-${pic.arrangement.id}'),
+                      child: editing
+                          ? GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => onSelectBlock(pic.arrangement.id),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: selectedId == pic.arrangement.id
+                                        ? CamaleonColors.green
+                                        : Colors.transparent,
+                                    width: 3,
+                                  ),
+                                ),
+                                child: BillboardPicturePanel(
+                                  block: pic,
+                                  fit: BoxFit.fill,
+                                ),
+                              ),
+                            )
+                          : BillboardPicturePanel(block: pic, fit: BoxFit.fill),
+                    ),
+                  FittedBox(
+                    fit: BoxFit.contain,
+                    // topLeft so x=0 blocks sit on the left edge
+                    // (topCenter letterboxed and blocked "further left").
+                    alignment: Alignment.topLeft,
                     child: SizedBox(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight,
+                      width: designW,
+                      height: designH,
                       child: Stack(
-                        fit: StackFit.expand,
+                        clipBehavior: Clip.none,
                         children: [
-                          if (activeBgPictures.isEmpty) ColoredBox(color: bg),
-                          for (final pic in activeBgPictures)
+                          if (editing)
                             Positioned.fill(
-                              key: ValueKey('bg-${pic.arrangement.id}'),
-                              child: editing
-                                  ? GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () =>
-                                          onSelectBlock(pic.arrangement.id),
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(
-                                            color: selectedId ==
-                                                    pic.arrangement.id
-                                                ? CamaleonColors.green
-                                                : Colors.transparent,
-                                            width: 3,
-                                          ),
-                                        ),
-                                        child: BillboardPicturePanel(
-                                          block: pic,
-                                          fit: BoxFit.fill,
-                                        ),
-                                      ),
-                                    )
-                                  : BillboardPicturePanel(
-                                      block: pic,
-                                      fit: BoxFit.fill,
-                                    ),
-                            ),
-                          FittedBox(
-                            fit: BoxFit.contain,
-                            // topLeft so x=0 blocks sit on the left edge
-                            // (topCenter letterboxed and blocked "further left").
-                            alignment: Alignment.topLeft,
-                            child: SizedBox(
-                              width: designW,
-                              height: designH,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  if (editing)
-                                    Positioned.fill(
-                                      child: GestureDetector(
-                                        behavior: HitTestBehavior.translucent,
-                                        onTap: onClearSelection,
-                                      ),
-                                    ),
-                                  for (final section in sections)
-                                    _BoardBlock(
-                                      key: ValueKey(
-                                        'sec-${section.arrangement.id}',
-                                      ),
-                                      x: section.arrangement.xDistance
-                                          .toDouble(),
-                                      y: section.arrangement.yDistance
-                                          .toDouble(),
-                                      width: section.arrangement.maxWidth
-                                          .toDouble()
-                                          .clamp(
-                                            120,
-                                            maxBlockWidth.toDouble(),
-                                          ),
-                                      editing: editing,
-                                      selected:
-                                          selectedId == section.arrangement.id,
-                                      resizable: true,
-                                      contentRevision:
-                                          '${section.arrangement.classFontSize}-'
-                                          '${section.arrangement.itemFontSize}-'
-                                          '${section.arrangement.maxWidth}-'
-                                          '${section.arrangement.classBackColor}-'
-                                          '${section.arrangement.itemBackColor}-'
-                                          '${section.arrangement.classForeColor}-'
-                                          '${section.arrangement.itemForeColor}-'
-                                          '${section.arrangement.classBold}-'
-                                          '${section.arrangement.itemBold}-'
-                                          '${section.arrangement.classUpperCase}-'
-                                          '${section.arrangement.itemUpperCase}-'
-                                          '${section.arrangement.modifierColor}-'
-                                          '${section.arrangement.modifierFontSize}-'
-                                          '${section.arrangement.classFontName}-'
-                                          '${section.arrangement.itemFontName}-'
-                                          '${section.arrangement.modifierFontName}-'
-                                          '${section.arrangement.contentType.dbValue}-'
-                                          '${section.arrangement.borderTopWidth}-'
-                                          '${section.arrangement.borderTopColor}-'
-                                          '${section.arrangement.rangeItems}-'
-                                          '${section.arrangement.offerId}-'
-                                          '${section.arrangement.displayOrder}-'
-                                          '${section.arrangement.displaySeconds}-'
-                                          '${section.className}-'
-                                          '${Object.hashAll([
-                                            for (final i in section.items)
-                                              Object.hash(
-                                                i.itemId,
-                                                i.name,
-                                                i.price,
-                                                i.description,
-                                              ),
-                                          ])}',
-                                      onSelect: () =>
-                                          onSelectBlock(section.arrangement.id),
-                                      onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width, height) {
-                                        c.commitArrangementGeometry(
-                                          arrangementId:
-                                              section.arrangement.id,
-                                          xDistance: x,
-                                          yDistance: y,
-                                          maxWidth: width.round(),
-                                          maxX: maxPos,
-                                          maxY: maxPos,
-                                        );
-                                      },
-                                      child: MenuSectionPanel(
-                                        section: section,
-                                      ),
-                                    ),
-                                  for (final pic in fgPictures)
-                                    _BoardBlock(
-                                      key: ValueKey(
-                                        'pic-${pic.arrangement.id}',
-                                      ),
-                                      x: pic.x.toDouble(),
-                                      y: pic.y.toDouble(),
-                                      width: pic.arrangement.maxWidth
-                                          .toDouble()
-                                          .clamp(40, maxBlockWidth.toDouble()),
-                                      height:
-                                          pic.arrangement.pictureDisplayHeight,
-                                      editing: editing,
-                                      selected:
-                                          selectedId == pic.arrangement.id,
-                                      resizable: true,
-                                      minWidth: 80,
-                                      lockAspectHeight: true,
-                                      contentRevision:
-                                          '${pic.arrangement.maxWidth}-'
-                                          '${pic.bytes?.length ?? 0}-'
-                                          '${pic.route}-'
-                                          '${pic.arrangement.mediaFit.dbValue}-'
-                                          '${pic.arrangement.mediaOpacity}-'
-                                          '${pic.arrangement.borderTopWidth}-'
-                                          '${pic.arrangement.borderTopColor}-'
-                                          '${pic.arrangement.mediaType.dbValue}',
-                                      onSelect: () =>
-                                          onSelectBlock(pic.arrangement.id),
-                                      onDragStarted: c.markLayoutDirty,
-                                      onCommit: (x, y, width, height) {
-                                        c.commitArrangementGeometry(
-                                          arrangementId: pic.arrangement.id,
-                                          xDistance: x,
-                                          yDistance: y,
-                                          maxWidth: width.round(),
-                                          minWidth: 80,
-                                          maxX: maxPos,
-                                          maxY: maxPos,
-                                        );
-                                      },
-                                      child: BillboardPicturePanel(
-                                        block: pic,
-                                        framed: context.select(
-                                          (BillboardController c) =>
-                                              c.mediaFrame,
-                                        ),
-                                      ),
-                                    ),
-                                  if (board.sections.isEmpty &&
-                                      board.pictures.isEmpty)
-                                    const Center(
-                                      child: Text(
-                                        'No bb_arrangement rows for this computer name.\n'
-                                        'Configure screens in Camaleon POS → Billboard.',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                    ),
-                                ],
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onTap: onClearSelection,
                               ),
                             ),
-                          ),
+                          for (final section in sections)
+                            _BoardBlock(
+                              key: ValueKey('sec-${section.arrangement.id}'),
+                              x: section.arrangement.xDistance.toDouble(),
+                              y: section.arrangement.yDistance.toDouble(),
+                              width: section.arrangement.maxWidth
+                                  .toDouble()
+                                  .clamp(120, maxBlockWidth.toDouble()),
+                              editing: editing,
+                              selected: selectedId == section.arrangement.id,
+                              resizable: true,
+                              contentRevision:
+                                  '${section.arrangement.classFontSize}-'
+                                  '${section.arrangement.itemFontSize}-'
+                                  '${section.arrangement.maxWidth}-'
+                                  '${section.arrangement.classBackColor}-'
+                                  '${section.arrangement.itemBackColor}-'
+                                  '${section.arrangement.classForeColor}-'
+                                  '${section.arrangement.itemForeColor}-'
+                                  '${section.arrangement.classBold}-'
+                                  '${section.arrangement.itemBold}-'
+                                  '${section.arrangement.classUpperCase}-'
+                                  '${section.arrangement.itemUpperCase}-'
+                                  '${section.arrangement.modifierColor}-'
+                                  '${section.arrangement.modifierFontSize}-'
+                                  '${section.arrangement.classFontName}-'
+                                  '${section.arrangement.itemFontName}-'
+                                  '${section.arrangement.modifierFontName}-'
+                                  '${section.arrangement.contentType.dbValue}-'
+                                  '${section.arrangement.borderTopWidth}-'
+                                  '${section.arrangement.borderTopColor}-'
+                                  '${section.arrangement.rangeItems}-'
+                                  '${section.arrangement.offerId}-'
+                                  '${section.arrangement.displayOrder}-'
+                                  '${section.arrangement.displaySeconds}-'
+                                  '${section.className}-'
+                                  '${Object.hashAll([for (final i in section.items) Object.hash(i.itemId, i.name, i.price, i.description)])}',
+                              onSelect: () =>
+                                  onSelectBlock(section.arrangement.id),
+                              onDragStarted: c.markLayoutDirty,
+                              onCommit: (x, y, width, height) {
+                                c.commitArrangementGeometry(
+                                  arrangementId: section.arrangement.id,
+                                  xDistance: x,
+                                  yDistance: y,
+                                  maxWidth: width.round(),
+                                  maxX: maxPos,
+                                  maxY: maxPos,
+                                );
+                              },
+                              child: MenuSectionPanel(section: section),
+                            ),
+                          for (final pic in fgPictures)
+                            _BoardBlock(
+                              key: ValueKey('pic-${pic.arrangement.id}'),
+                              x: pic.x.toDouble(),
+                              y: pic.y.toDouble(),
+                              width: pic.arrangement.maxWidth.toDouble().clamp(
+                                40,
+                                maxBlockWidth.toDouble(),
+                              ),
+                              height: pic.arrangement.pictureDisplayHeight,
+                              editing: editing,
+                              selected: selectedId == pic.arrangement.id,
+                              resizable: true,
+                              minWidth: 80,
+                              lockAspectHeight: true,
+                              contentRevision:
+                                  '${pic.arrangement.maxWidth}-'
+                                  '${pic.bytes?.length ?? 0}-'
+                                  '${pic.route}-'
+                                  '${pic.arrangement.mediaFit.dbValue}-'
+                                  '${pic.arrangement.mediaOpacity}-'
+                                  '${pic.arrangement.borderTopWidth}-'
+                                  '${pic.arrangement.borderTopColor}-'
+                                  '${pic.arrangement.mediaType.dbValue}',
+                              onSelect: () => onSelectBlock(pic.arrangement.id),
+                              onDragStarted: c.markLayoutDirty,
+                              onCommit: (x, y, width, height) {
+                                c.commitArrangementGeometry(
+                                  arrangementId: pic.arrangement.id,
+                                  xDistance: x,
+                                  yDistance: y,
+                                  maxWidth: width.round(),
+                                  minWidth: 80,
+                                  maxX: maxPos,
+                                  maxY: maxPos,
+                                );
+                              },
+                              child: BillboardPicturePanel(
+                                block: pic,
+                                framed: context.select(
+                                  (BillboardController c) => c.mediaFrame,
+                                ),
+                              ),
+                            ),
+                          if (board.sections.isEmpty && board.pictures.isEmpty)
+                            const Center(
+                              child: Text(
+                                'No bb_arrangement rows for this computer name.\n'
+                                'Configure screens in Camaleon POS → Billboard.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
-            );
+            ),
+          );
+        },
+      ),
+    );
     if (showOrderPanel && floating) {
       return Stack(
         fit: StackFit.expand,
@@ -1523,10 +1479,7 @@ class _BoardCanvasLayer extends StatelessWidget {
       children: [
         Expanded(child: boardView),
         if (showOrderPanel) ...[
-          Container(
-            width: 1,
-            color: Colors.white.withValues(alpha: 0.12),
-          ),
+          Container(width: 1, color: Colors.white.withValues(alpha: 0.12)),
           CustomerOrderBoardPanel(width: orderColW),
         ],
       ],
@@ -1590,11 +1543,11 @@ class _FloatingCustomerDisplayState extends State<_FloatingCustomerDisplay> {
 
   void _save() {
     context.read<BillboardController>().setPoleDisplayFrame(
-          left: _left,
-          top: _top,
-          width: _width.round(),
-          height: _height.round(),
-        );
+      left: _left,
+      top: _top,
+      width: _width.round(),
+      height: _height.round(),
+    );
   }
 
   @override
@@ -1660,10 +1613,14 @@ class _FloatingCustomerDisplayState extends State<_FloatingCustomerDisplay> {
                           behavior: HitTestBehavior.opaque,
                           onPanUpdate: (d) {
                             setState(() {
-                              _width = (_width + d.delta.dx)
-                                  .clamp(280.0, box.maxWidth);
-                              _height = (_height + d.delta.dy)
-                                  .clamp(240.0, box.maxHeight);
+                              _width = (_width + d.delta.dx).clamp(
+                                280.0,
+                                box.maxWidth,
+                              );
+                              _height = (_height + d.delta.dy).clamp(
+                                240.0,
+                                box.maxHeight,
+                              );
                             });
                           },
                           onPanEnd: (_) => _save(),
